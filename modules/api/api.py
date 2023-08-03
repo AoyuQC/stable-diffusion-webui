@@ -34,7 +34,12 @@ import piexif.helper
 from contextlib import closing
 
 # TODO move to build_scripts
-from modules.pipeline import process_images_pipeline
+from modules.pipeline import process_txt2img
+from modules.api.models import *
+import json
+import threading
+import logging
+logger = logging.getLogger(__name__)
 
 
 def script_name_to_index(name, scripts):
@@ -854,7 +859,7 @@ class Api:
                 processed = scripts.scripts_txt2img.run(p, *p.script_args) # Need to pass args as list here
             else:
                 p.script_args = tuple(script_args) # Need to pass args as tuple here
-                processed = process_images(p)
+                processed = process_txt2img(p)
             # shared.state.end()
 
         b64images = list(map(encode_pil_to_base64, processed.images)) if send_images else []
