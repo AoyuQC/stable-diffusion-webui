@@ -19,6 +19,7 @@ from modules import sd_samplers, deepbooru, sd_hijack, images, scripts, ui, post
 from modules.api import models
 from modules.shared import opts
 from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img, process_images
+from modules.pipeline import StableDiffusionPipelineTxt2Img, StableDiffusionPipelineImg2Img
 from modules.textual_inversion.textual_inversion import create_embedding, train_embedding
 from modules.textual_inversion.preprocess import preprocess
 from modules.hypernetworks.hypernetwork import create_hypernetwork, train_hypernetwork
@@ -964,7 +965,7 @@ class Api:
         args.pop('save_images', None)
 
         with self.queue_lock:
-            with closing(StableDiffusionProcessingImg2Img(sd_model=shared.sd_model, **args)) as p:
+            with closing(StableDiffusionPipelineImg2Img(sd_model=shared.sd_model, **args)) as p:
                 p.init_images = [decode_base64_to_image(x) for x in init_images]
                 p.scripts = script_runner
                 p.outpath_grids = opts.outdir_img2img_grids
