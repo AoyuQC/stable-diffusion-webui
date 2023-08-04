@@ -35,7 +35,7 @@ from contextlib import closing
 import traceback
 
 # TODO move to build_scripts
-from modules.pipeline import process_txt2img
+from modules.pipeline import StableDiffusionPipelineTxt2Img, StableDiffusionPipelineImg2Img, process_images_pipeline
 from modules.api.models import *
 import json
 import threading
@@ -852,7 +852,7 @@ class Api:
         send_images = args.pop('send_images', True)
         args.pop('save_images', None)
 
-        with closing(StableDiffusionProcessingTxt2Img(sd_model=None, **args)) as p:
+        with closing(StableDiffusionPipelineTxt2Img(sd_model=None, **args)) as p:
             p.scripts = script_runner
             p.outpath_grids = opts.outdir_txt2img_grids
             p.outpath_samples = opts.outdir_txt2img_samples
@@ -863,7 +863,7 @@ class Api:
                 processed = scripts.scripts_txt2img.run(p, *p.script_args) # Need to pass args as list here
             else:
                 p.script_args = tuple(script_args) # Need to pass args as tuple here
-                processed = process_txt2img(p)
+                processed = process_images_pipeline(p)
             # shared.state.end()
 
         b64images = list(map(encode_pil_to_base64, processed.images)) if send_images else []
