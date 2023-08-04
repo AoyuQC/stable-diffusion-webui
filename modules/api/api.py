@@ -32,6 +32,7 @@ from typing import Dict, List, Any
 import piexif
 import piexif.helper
 from contextlib import closing
+import traceback
 
 # TODO move to build_scripts
 from modules.pipeline import process_txt2img
@@ -808,8 +809,11 @@ class Api:
                         f"{threading.current_thread().ident}_{threading.current_thread().name}_______ txt2img end !!!!!!!! {len(response.json())}")
                     return response.json()
             elif req.task == 'img2img':
-                logger.info("img2img not implemented!")
-                return 0
+                with self.queue_lock:
+                    response = self.img2img_pipeline(req.txt2img_payload)
+                    logger.info(
+                        f"{threading.current_thread().ident}_{threading.current_thread().name}_______ txt2img end !!!!!!!! {len(response.json())}")
+                    return response.json()
             elif req.task == 'interrogate_clip' or req.task == 'interrogate_deepbooru':
                 logger.info("interrogate not implemented!")
                 return 0
