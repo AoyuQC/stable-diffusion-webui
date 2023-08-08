@@ -34,7 +34,9 @@ from blendmodes.blend import blendLayers, BlendType
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
 opt_C = 4
 opt_f = 8
-
+from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
+pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float16)
+pipeline.to("cuda")
 
 def setup_color_correction(image):
     logging.info("Calibrating color correction.")
@@ -1642,6 +1644,11 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         self.hr_uc = None
 
     def init(self, all_prompts, all_seeds, all_subseeds):
+        self.tokenizer = pipeline.tokenizer
+        self.unet = pipeline.unet
+        self.scheduler = pipeline.scheduler
+        self.text_encoder = pipeline.text_encoder
+        self.decode_latents = pipeline.decode_latents
         if self.enable_hr:
             if self.hr_sampler_name is not None and self.hr_sampler_name != self.sampler_name:
                 self.extra_generation_params["Hires sampler"] = self.hr_sampler_name
@@ -1713,7 +1720,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 self.extra_generation_params["Hires upscaler"] = self.hr_upscaler
 
     def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
-        self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
+        # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
         latent_scale_mode = shared.latent_upscale_modes.get(self.hr_upscaler, None) if self.hr_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
         if self.enable_hr and latent_scale_mode is None:
@@ -1734,6 +1741,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         num_inference_steps = 25
         guidance_scale = 7.5
         torch_device = "cuda"
+        pipeline(prompt)
 
         # text embedding
         text_input = self.tokenizer(
@@ -1746,7 +1754,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
 
         for t in tqdm(self.scheduler.timesteps):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
-            latent_model_input = torch.cat([latents] * 2)
+            # latent_model_input = torch.cat([latents] * 2)
+            latent_model_input = latents
 
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
 
@@ -1755,13 +1764,33 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
 
             # perform guidance
-            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+            # noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+            # noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-        
+
         samples = latents
+        image = self.decode_latents(samples)
+        # 9. Run safety checker
+        # image, has_nsfw_concept = self.run_safety_checker(image, torch_device, prompt_embeds.dtype)
+        # 10. Convert to PIL
+        def numpy_to_pil(images):
+            """
+            Convert a numpy image or a batch of images to a PIL image.
+            """
+            if images.ndim == 3:
+                images = images[None, ...]
+            images = (images * 255).round().astype("uint8")
+            if images.shape[-1] == 1:
+                # special case for grayscale (single channel) images
+                pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
+            else:
+                pil_images = [Image.fromarray(image) for image in images]
+            return pil_images
+        image = numpy_to_pil(image)
+        image.save("test.png")
+
 
         if not self.enable_hr:
             return samples
@@ -2071,80 +2100,81 @@ def process_images_inner_pipeline(p: StableDiffusionProcessing) -> Processed:
             with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
                 samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
 
-            x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
-            x_samples_ddim = torch.stack(x_samples_ddim).float()
-            x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
+            # x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
+            # x_samples_ddim = torch.stack(x_samples_ddim).float()
+            # x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
 
-            del samples_ddim
+            # del samples_ddim
 
-            if lowvram.is_enabled(shared.sd_model):
-                lowvram.send_everything_to_cpu()
+            # if lowvram.is_enabled(shared.sd_model):
+            #     lowvram.send_everything_to_cpu()
 
-            devices.torch_gc()
+            # devices.torch_gc()
 
-            if p.scripts is not None:
-                p.scripts.postprocess_batch(p, x_samples_ddim, batch_number=n)
+            # if p.scripts is not None:
+            #     p.scripts.postprocess_batch(p, x_samples_ddim, batch_number=n)
 
-            for i, x_sample in enumerate(x_samples_ddim):
-                p.batch_index = i
+            # for i, x_sample in enumerate(x_samples_ddim):
+            #     p.batch_index = i
 
-                x_sample = 255. * np.moveaxis(x_sample.cpu().numpy(), 0, 2)
-                x_sample = x_sample.astype(np.uint8)
+            #     x_sample = 255. * np.moveaxis(x_sample.cpu().numpy(), 0, 2)
+            #     x_sample = x_sample.astype(np.uint8)
 
-                if p.restore_faces:
-                    if opts.save and not p.do_not_save_samples and opts.save_images_before_face_restoration:
-                        images.save_image(Image.fromarray(x_sample), p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p, suffix="-before-face-restoration")
+            #     if p.restore_faces:
+            #         if opts.save and not p.do_not_save_samples and opts.save_images_before_face_restoration:
+            #             images.save_image(Image.fromarray(x_sample), p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p, suffix="-before-face-restoration")
 
-                    devices.torch_gc()
+            #         devices.torch_gc()
 
-                    x_sample = modules.face_restoration.restore_faces(x_sample)
-                    devices.torch_gc()
+            #         x_sample = modules.face_restoration.restore_faces(x_sample)
+            #         devices.torch_gc()
 
-                image = Image.fromarray(x_sample)
+            #     image = Image.fromarray(x_sample)
+            #     image.save("test.png")
 
-                if p.scripts is not None:
-                    pp = scripts.PostprocessImageArgs(image)
-                    p.scripts.postprocess_image(p, pp)
-                    image = pp.image
+            #     if p.scripts is not None:
+            #         pp = scripts.PostprocessImageArgs(image)
+            #         p.scripts.postprocess_image(p, pp)
+            #         image = pp.image
 
-                if p.color_corrections is not None and i < len(p.color_corrections):
-                    if opts.save and not p.do_not_save_samples and opts.save_images_before_color_correction:
-                        image_without_cc = apply_overlay(image, p.paste_to, i, p.overlay_images)
-                        images.save_image(image_without_cc, p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p, suffix="-before-color-correction")
-                    image = apply_color_correction(p.color_corrections[i], image)
+            #     if p.color_corrections is not None and i < len(p.color_corrections):
+            #         if opts.save and not p.do_not_save_samples and opts.save_images_before_color_correction:
+            #             image_without_cc = apply_overlay(image, p.paste_to, i, p.overlay_images)
+            #             images.save_image(image_without_cc, p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p, suffix="-before-color-correction")
+            #         image = apply_color_correction(p.color_corrections[i], image)
 
-                image = apply_overlay(image, p.paste_to, i, p.overlay_images)
+            #     image = apply_overlay(image, p.paste_to, i, p.overlay_images)
 
-                if opts.samples_save and not p.do_not_save_samples:
-                    images.save_image(image, p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p)
+            #     if opts.samples_save and not p.do_not_save_samples:
+            #         images.save_image(image, p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p)
 
-                text = infotext(n, i)
-                infotexts.append(text)
-                if opts.enable_pnginfo:
-                    image.info["parameters"] = text
-                output_images.append(image)
+            #     text = infotext(n, i)
+            #     infotexts.append(text)
+            #     if opts.enable_pnginfo:
+            #         image.info["parameters"] = text
+            #     output_images.append(image)
 
-                if hasattr(p, 'mask_for_overlay') and p.mask_for_overlay and any([opts.save_mask, opts.save_mask_composite, opts.return_mask, opts.return_mask_composite]):
-                    image_mask = p.mask_for_overlay.convert('RGB')
-                    image_mask_composite = Image.composite(image.convert('RGBA').convert('RGBa'), Image.new('RGBa', image.size), images.resize_image(2, p.mask_for_overlay, image.width, image.height).convert('L')).convert('RGBA')
+            #     if hasattr(p, 'mask_for_overlay') and p.mask_for_overlay and any([opts.save_mask, opts.save_mask_composite, opts.return_mask, opts.return_mask_composite]):
+            #         image_mask = p.mask_for_overlay.convert('RGB')
+            #         image_mask_composite = Image.composite(image.convert('RGBA').convert('RGBa'), Image.new('RGBa', image.size), images.resize_image(2, p.mask_for_overlay, image.width, image.height).convert('L')).convert('RGBA')
 
-                    if opts.save_mask:
-                        images.save_image(image_mask, p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p, suffix="-mask")
+            #         if opts.save_mask:
+            #             images.save_image(image_mask, p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p, suffix="-mask")
 
-                    if opts.save_mask_composite:
-                        images.save_image(image_mask_composite, p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p, suffix="-mask-composite")
+            #         if opts.save_mask_composite:
+            #             images.save_image(image_mask_composite, p.outpath_samples, "", p.seeds[i], p.prompts[i], opts.samples_format, info=infotext(n, i), p=p, suffix="-mask-composite")
 
-                    if opts.return_mask:
-                        output_images.append(image_mask)
+            #         if opts.return_mask:
+            #             output_images.append(image_mask)
 
-                    if opts.return_mask_composite:
-                        output_images.append(image_mask_composite)
+            #         if opts.return_mask_composite:
+            #             output_images.append(image_mask_composite)
 
-            del x_samples_ddim
+            # del x_samples_ddim
 
-            devices.torch_gc()
+            # devices.torch_gc()
 
-            state.nextjob()
+            # state.nextjob()
 
         p.color_corrections = None
 

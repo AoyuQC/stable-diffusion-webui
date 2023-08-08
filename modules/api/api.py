@@ -34,11 +34,12 @@ import piexif.helper
 from contextlib import closing
 
 # TODO move to build_scripts
-from modules.pipeline import StableDiffusionPipelineTxt2Img, StableDiffusionPipelineImg2Img, process_images_pipeline
+from modules.pipeline import StableDiffusionPipelineTxt2Img, process_images_pipeline
 from modules.api.models import *
 import json
 import threading
 import logging
+import traceback
 logger = logging.getLogger(__name__)
 
 
