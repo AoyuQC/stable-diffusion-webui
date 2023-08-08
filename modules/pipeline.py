@@ -34,7 +34,9 @@ from blendmodes.blend import blendLayers, BlendType
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
 opt_C = 4
 opt_f = 8
-
+from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
+pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float16)
+pipeline.to("cuda")
 
 def setup_color_correction(image):
     logging.info("Calibrating color correction.")
@@ -1423,6 +1425,11 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         self.hr_uc = None
 
     def init(self, all_prompts, all_seeds, all_subseeds):
+        self.tokenizer = pipeline.tokenizer
+        self.unet = pipeline.unet
+        self.scheduler = pipeline.scheduler
+        self.text_encoder = pipeline.text_encoder
+        self.decode_latents = pipeline.decode_latents
         if self.enable_hr:
             if self.hr_sampler_name is not None and self.hr_sampler_name != self.sampler_name:
                 self.extra_generation_params["Hires sampler"] = self.hr_sampler_name
@@ -1494,7 +1501,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 self.extra_generation_params["Hires upscaler"] = self.hr_upscaler
 
     def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
-        self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
+        # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
         latent_scale_mode = shared.latent_upscale_modes.get(self.hr_upscaler, None) if self.hr_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
         if self.enable_hr and latent_scale_mode is None:
@@ -1515,6 +1522,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         num_inference_steps = 25
         guidance_scale = 7.5
         torch_device = "cuda"
+        pipeline(prompt)
 
         # text embedding
         text_input = self.tokenizer(
@@ -1527,7 +1535,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
 
         for t in tqdm(self.scheduler.timesteps):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
-            latent_model_input = torch.cat([latents] * 2)
+            # latent_model_input = torch.cat([latents] * 2)
+            latent_model_input = latents
 
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
 
@@ -1536,13 +1545,33 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
 
             # perform guidance
-            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+            # noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+            # noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-        
+
         samples = latents
+        image = self.decode_latents(samples)
+        # 9. Run safety checker
+        # image, has_nsfw_concept = self.run_safety_checker(image, torch_device, prompt_embeds.dtype)
+        # 10. Convert to PIL
+        def numpy_to_pil(images):
+            """
+            Convert a numpy image or a batch of images to a PIL image.
+            """
+            if images.ndim == 3:
+                images = images[None, ...]
+            images = (images * 255).round().astype("uint8")
+            if images.shape[-1] == 1:
+                # special case for grayscale (single channel) images
+                pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
+            else:
+                pil_images = [Image.fromarray(image) for image in images]
+            return pil_images
+        image = numpy_to_pil(image)
+        image.save("test.png")
+
 
         if not self.enable_hr:
             return samples
@@ -1907,7 +1936,6 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
 
         init_latents = self.scheduler.add_noise(init_latents, noise, latent_timestep)
         latents = init_latents
-
         for t in tqdm(self.scheduler.timesteps):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
             latent_model_input = torch.cat([latents] * 2)
