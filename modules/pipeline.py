@@ -795,10 +795,13 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
 
             with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
                 samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
+                latents = 1 / pipeline.vae.config.scaling_factor * samples_ddim
+                image = pipeline.vae.decode(latents).sample
+                image = (image / 2 + 0.5).clamp(0, 1)
+                x_samples_ddim = image
+                # x_samples_ddim = pipeline.decode_latents(samples_ddim)
 
             # x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
-            x_samples_ddim = p.decode_latents(samples_ddim)
-
             # x_samples_ddim = torch.stack(x_samples_ddim).float()
             # x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
 
@@ -966,10 +969,10 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         self.hr_uc = None
         self.tokenizer = pipeline.tokenizer
         self.unet = pipeline.unet
-        self.vae = pipeline.vae
+        # self.vae = pipeline.vae
         self.scheduler = pipeline.scheduler
         self.text_encoder = pipeline.text_encoder
-        self.decode_latents = pipeline.decode_latents
+        # self.decode_latents = pipeline.decode_latents
 
     def init(self, all_prompts, all_seeds, all_subseeds):
         if self.enable_hr:
@@ -1042,6 +1045,9 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
             if self.hr_upscaler is not None:
                 self.extra_generation_params["Hires upscaler"] = self.hr_upscaler
 
+    def decode_latents(self):
+        return pipeline.decode_latents
+
     def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
         # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
@@ -1086,8 +1092,9 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
         # latents = 1 / 0.18215 * latents
-        samples = copy.deepcopy(latents)
-        images = self.decode_latents(latents)
+        # samples = copy.deepcopy(latents)
+        samples = latents
+        images = pipeline.decode_latents(latents)
         # 9. Run safety checker
         # image, has_nsfw_concept = self.run_safety_checker(image, shared.device, prompt_embeds.dtype)
         # 10. Convert to PIL
