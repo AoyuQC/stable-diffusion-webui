@@ -26,6 +26,7 @@ import modules.sd_models as sd_models
 import modules.sd_vae as sd_vae
 from ldm.data.util import AddMiDaS
 from ldm.models.diffusion.ddpm import LatentDepth2ImageDiffusion
+from tqdm import tqdm
 
 from einops import repeat, rearrange
 from blendmodes.blend import blendLayers, BlendType
@@ -794,9 +795,11 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
             with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
                 samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
 
-            x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
-            x_samples_ddim = torch.stack(x_samples_ddim).float()
-            x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
+            # x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
+            x_samples_ddim = p.decode_latents(samples_ddim)
+
+            # x_samples_ddim = torch.stack(x_samples_ddim).float()
+            # x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
 
             del samples_ddim
 
@@ -1431,6 +1434,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         self.scheduler = pipeline.scheduler
         self.text_encoder = pipeline.text_encoder
         self.decode_latents = pipeline.decode_latents
+        self.vae = pipeline.vae
         if self.enable_hr:
             if self.hr_sampler_name is not None and self.hr_sampler_name != self.sampler_name:
                 self.extra_generation_params["Hires sampler"] = self.hr_sampler_name
@@ -1510,37 +1514,22 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 raise Exception(f"could not find upscaler named {self.hr_upscaler}")
 
         x = create_random_tensors([opt_C, self.height // opt_f, self.width // opt_f], seeds=seeds, subseeds=subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w, p=self)
-        # samples = self.sampler.sample(self, x, conditioning, unconditional_conditioning, image_conditioning=self.txt2img_image_conditioning(x))
-        # x = torch.randn(1, model.config.in_channels, model.config.sample_size, model.config.sample_size)
-        torch_device = "cuda"
-        # x = torch.randn(1, 4, 64, 64).to(torch_device)
 
-        # diffuser pipeline
-        latents = x
-
-        from tqdm.auto import tqdm
-
-        prompt = ["a photograph of an astronaut riding a horse"]
-        height = 512
-        width = 512
-        num_inference_steps = 25
-        guidance_scale = 7.5
-
-        # text embedding
+        # prompt text embedding
         text_input = self.tokenizer(
-            prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
+            self.prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
         )
         with torch.no_grad():
-            text_embeddings = self.text_encoder(text_input.input_ids.to(torch_device))[0]
+            text_embeddings = self.text_encoder(text_input.input_ids.to(shared.device))[0]
 
         max_length = text_input.input_ids.shape[-1]
         batch_size = 1
         uncond_input = self.tokenizer([""] * batch_size, padding="max_length", max_length=max_length, return_tensors="pt")
-        uncond_embeddings = self.text_encoder(uncond_input.input_ids.to(torch_device))[0]
-        # text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
-        text_embeddings = torch.cat([text_embeddings, uncond_embeddings])
+        uncond_embeddings = self.text_encoder(uncond_input.input_ids.to(shared.device))[0]
+        text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
         
-        self.scheduler.set_timesteps(num_inference_steps)
+        # prepare timesteps
+        self.scheduler.set_timesteps(self.steps)
 
         for t in tqdm(self.scheduler.timesteps):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
@@ -1551,7 +1540,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
 
             # predict the noise residual
             with torch.no_grad():
-                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
+                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)
+                noise_pred = noise_pred.sample
 
             # perform guidance
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -1559,11 +1549,11 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
 
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-        samples = latents
         # latents = 1 / 0.18215 * latents
+        samples = latents
         images = self.decode_latents(latents)
         # 9. Run safety checker
-        # image, has_nsfw_concept = self.run_safety_checker(image, torch_device, prompt_embeds.dtype)
+        # image, has_nsfw_concept = self.run_safety_checker(image, shared.device, prompt_embeds.dtype)
         # 10. Convert to PIL
         def numpy_to_pil(images):
             """
@@ -1580,7 +1570,6 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
             return pil_images
         images = numpy_to_pil(images)
         images[0].save("test.png")
-
 
         if not self.enable_hr:
             return samples
