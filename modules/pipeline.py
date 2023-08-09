@@ -1427,6 +1427,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
     def init(self, all_prompts, all_seeds, all_subseeds):
         self.tokenizer = pipeline.tokenizer
         self.unet = pipeline.unet
+        self.vae = pipeline.vae
         self.scheduler = pipeline.scheduler
         self.text_encoder = pipeline.text_encoder
         self.decode_latents = pipeline.decode_latents
@@ -1510,6 +1511,9 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
 
         x = create_random_tensors([opt_C, self.height // opt_f, self.width // opt_f], seeds=seeds, subseeds=subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w, p=self)
         # samples = self.sampler.sample(self, x, conditioning, unconditional_conditioning, image_conditioning=self.txt2img_image_conditioning(x))
+        # x = torch.randn(1, model.config.in_channels, model.config.sample_size, model.config.sample_size)
+        torch_device = "cuda"
+        # x = torch.randn(1, 4, 64, 64).to(torch_device)
 
         # diffuser pipeline
         latents = x
@@ -1521,8 +1525,6 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         width = 512
         num_inference_steps = 25
         guidance_scale = 7.5
-        torch_device = "cuda"
-        pipeline(prompt)
 
         # text embedding
         text_input = self.tokenizer(
@@ -1530,13 +1532,20 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         )
         with torch.no_grad():
             text_embeddings = self.text_encoder(text_input.input_ids.to(torch_device))[0]
+
+        max_length = text_input.input_ids.shape[-1]
+        batch_size = 1
+        uncond_input = self.tokenizer([""] * batch_size, padding="max_length", max_length=max_length, return_tensors="pt")
+        uncond_embeddings = self.text_encoder(uncond_input.input_ids.to(torch_device))[0]
+        # text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
+        text_embeddings = torch.cat([text_embeddings, uncond_embeddings])
         
         self.scheduler.set_timesteps(num_inference_steps)
 
         for t in tqdm(self.scheduler.timesteps):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
-            # latent_model_input = torch.cat([latents] * 2)
-            latent_model_input = latents
+            latent_model_input = torch.cat([latents] * 2)
+            # latent_model_input = latents
 
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
 
@@ -1545,14 +1554,14 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
 
             # perform guidance
-            # noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-            # noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-
         samples = latents
-        image = self.decode_latents(samples)
+        # latents = 1 / 0.18215 * latents
+        images = self.decode_latents(latents)
         # 9. Run safety checker
         # image, has_nsfw_concept = self.run_safety_checker(image, torch_device, prompt_embeds.dtype)
         # 10. Convert to PIL
@@ -1569,8 +1578,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
             else:
                 pil_images = [Image.fromarray(image) for image in images]
             return pil_images
-        image = numpy_to_pil(image)
-        image.save("test.png")
+        images = numpy_to_pil(images)
+        images[0].save("test.png")
 
 
         if not self.enable_hr:
