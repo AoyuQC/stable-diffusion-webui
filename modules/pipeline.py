@@ -37,8 +37,8 @@ from blendmodes.blend import blendLayers, BlendType
 opt_C = 4
 opt_f = 8
 from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
-pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float16)
-pipeline.to("cuda")
+diffuser_pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
+diffuser_pipeline.to("cuda")
 
 def setup_color_correction(image):
     logging.info("Calibrating color correction.")
@@ -796,7 +796,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
             with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
                 samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
 
-            # x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
+            x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
             x_samples_ddim = p.decode_latents(samples_ddim)
 
             # x_samples_ddim = torch.stack(x_samples_ddim).float()
@@ -964,12 +964,12 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         self.cached_hr_c = StableDiffusionPipelineTxt2Img.cached_hr_c
         self.hr_c = None
         self.hr_uc = None
-        self.tokenizer = pipeline.tokenizer
-        self.unet = pipeline.unet
-        self.vae = pipeline.vae
-        self.scheduler = pipeline.scheduler
-        self.text_encoder = pipeline.text_encoder
-        self.decode_latents = pipeline.decode_latents
+        self.tokenizer = diffuser_pipeline.tokenizer
+        self.unet = diffuser_pipeline.unet
+        self.vae = diffuser_pipeline.vae
+        self.scheduler = diffuser_pipeline.scheduler
+        self.text_encoder = diffuser_pipeline.text_encoder
+        self.decode_latents = diffuser_pipeline.decode_latents
 
     def init(self, all_prompts, all_seeds, all_subseeds):
         if self.enable_hr:
