@@ -19,7 +19,6 @@ from modules import sd_samplers, deepbooru, sd_hijack, images, scripts, ui, post
 from modules.api import models
 from modules.shared import opts
 from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img, process_images
-from modules.pipeline import StableDiffusionPipelineImg2Img
 from modules.textual_inversion.textual_inversion import create_embedding, train_embedding
 from modules.textual_inversion.preprocess import preprocess
 from modules.hypernetworks.hypernetwork import create_hypernetwork, train_hypernetwork
