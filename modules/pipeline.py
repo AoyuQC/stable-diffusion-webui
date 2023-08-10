@@ -1428,8 +1428,6 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         self.init_latent = self.vae.encode(image).latent_dist.sample(self.generator)
         self.init_latent = self.vae.config.scaling_factor * self.init_latent
 
-        init_latent_old = self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(image))
-
         if self.resize_mode == 3:
             self.init_latent = torch.nn.functional.interpolate(self.init_latent, size=(self.height // opt_f, self.width // opt_f), mode="bilinear")
 
@@ -1472,9 +1470,7 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
 
         # diffuser pipeline
         noise = x 
-        from tqdm.auto import tqdm
-
-
+        
         # text embedding
         text_input = self.tokenizer(
             self.prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
@@ -1505,7 +1501,7 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         
         init_latents = self.scheduler.add_noise(self.init_latent, noise, latent_timestep)
         latents = init_latents
-        num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
+        
         for t in tqdm(timesteps):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -1533,25 +1529,26 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
             samples = samples * self.nmask + self.init_latent * self.mask
         
         ##### debug for show the results
-        images = pipeline.decode_latents(latents)
-        # 9. Run safety checker
-        # image, has_nsfw_concept = self.run_safety_checker(image, shared.device, prompt_embeds.dtype)
-        # 10. Convert to PIL
-        def numpy_to_pil(images):
-            """
-            Convert a numpy image or a batch of images to a PIL image.
-            """
-            if images.ndim == 3:
-                images = images[None, ...]
-            images = (images * 255).round().astype("uint8")
-            if images.shape[-1] == 1:
-                # special case for grayscale (single channel) images
-                pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
-            else:
-                pil_images = [Image.fromarray(image) for image in images]
-            return pil_images
-        images = numpy_to_pil(images)
-        images[0].save("test_img2img_diffuser.png")
+        # images = pipeline.decode_latents(latents)
+        # # 9. Run safety checker
+        # # image, has_nsfw_concept = self.run_safety_checker(image, shared.device, prompt_embeds.dtype)
+        # # 10. Convert to PIL
+        # def numpy_to_pil(images):
+        #     """
+        #     Convert a numpy image or a batch of images to a PIL image.
+        #     """
+        #     if images.ndim == 3:
+        #         images = images[None, ...]
+        #     images = (images * 255).round().astype("uint8")
+        #     if images.shape[-1] == 1:
+        #         # special case for grayscale (single channel) images
+        #         pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
+        #     else:
+        #         pil_images = [Image.fromarray(image) for image in images]
+        #     return pil_images
+        # images = numpy_to_pil(images)
+        # images[0].save("test_img2img_diffuser.png")
+        ############################################
 
 
         del x
