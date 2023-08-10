@@ -1080,8 +1080,9 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
         
         # prepare timesteps
-        self.scheduler = LMSDiscreteScheduler.from_config(self.scheduler.config)
+        self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config)
         self.scheduler.set_timesteps(self.steps)
+        latents = latents * self.scheduler.init_noise_sigma
 
         for t in tqdm(self.scheduler.timesteps):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
