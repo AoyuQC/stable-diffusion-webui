@@ -1426,7 +1426,7 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         image = image.to(shared.device, dtype=devices.dtype_vae)
         
         self.init_latent = self.vae.encode(image).latent_dist.sample(self.generator)
-        self.init_latent = 0.18215 * self.init_latent
+        self.init_latent = self.vae.config.scaling_factor * self.init_latent
 
         init_latent_old = self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(image))
 
