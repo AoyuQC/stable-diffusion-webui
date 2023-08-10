@@ -810,11 +810,11 @@ class Api:
                         f"{threading.current_thread().ident}_{threading.current_thread().name}_______ txt2img end !!!!!!!! {len(response.json())}")
                     return response.json()
             elif req.task == 'img2img':
-                with self.queue_lock:
-                    response = self.img2img_pipeline(req.txt2img_payload)
-                    logger.info(
-                        f"{threading.current_thread().ident}_{threading.current_thread().name}_______ txt2img end !!!!!!!! {len(response.json())}")
-                    return response.json()
+                #with self.queue_lock:
+                response = self.img2img_pipeline(req.img2img_payload)
+                logger.info(
+                    f"{threading.current_thread().ident}_{threading.current_thread().name}_______ img2img end !!!!!!!! {len(response.json())}")
+                return response.json()
             elif req.task == 'interrogate_clip' or req.task == 'interrogate_deepbooru':
                 logger.info("interrogate not implemented!")
                 return 0
@@ -871,67 +871,7 @@ class Api:
 
         return models.TextToImageResponse(images=b64images, parameters=vars(txt2imgreq), info=processed.js())
     
-    def inpaint_pipeline(self, img2imgreq: models.StableDiffusionImg2ImgProcessingAPI):
-        init_images = img2imgreq.init_images
-        if init_images is None:
-            raise HTTPException(status_code=404, detail="Init image not found")
-
-        mask = img2imgreq.mask
-        if mask:
-            mask = decode_base64_to_image(mask)
-
-        script_runner = scripts.scripts_img2img
-        if not script_runner.scripts:
-            script_runner.initialize_scripts(True)
-            ui.create_ui()
-        if not self.default_script_arg_img2img:
-            self.default_script_arg_img2img = self.init_default_script_args(script_runner)
-        selectable_scripts, selectable_script_idx = self.get_selectable_script(img2imgreq.script_name, script_runner)
-
-        populate = img2imgreq.copy(update={  # Override __init__ params
-            "sampler_name": validate_sampler_name(img2imgreq.sampler_name or img2imgreq.sampler_index),
-            "do_not_save_samples": not img2imgreq.save_images,
-            "do_not_save_grid": not img2imgreq.save_images,
-            "mask": mask,
-        })
-        if populate.sampler_name:
-            populate.sampler_index = None  # prevent a warning later on
-
-        args = vars(populate)
-        args.pop('include_init_images', None)  # this is meant to be done by "exclude": True in model, but it's for a reason that I cannot determine.
-        args.pop('script_name', None)
-        args.pop('script_args', None)  # will refeed them to the pipeline directly after initializing them
-        args.pop('alwayson_scripts', None)
-
-        script_args = self.init_script_args(img2imgreq, self.default_script_arg_img2img, selectable_scripts, selectable_script_idx, script_runner)
-
-        send_images = args.pop('send_images', True)
-        args.pop('save_images', None)
-
-        with self.queue_lock:
-            with closing(StableDiffusionProcessingImg2Img(sd_model=shared.sd_model, **args)) as p:
-                p.init_images = [decode_base64_to_image(x) for x in init_images]
-                p.scripts = script_runner
-                p.outpath_grids = opts.outdir_img2img_grids
-                p.outpath_samples = opts.outdir_img2img_samples
-
-                shared.state.begin(job="scripts_img2img")
-                if selectable_scripts is not None:
-                    p.script_args = script_args
-                    processed = scripts.scripts_img2img.run(p, *p.script_args) # Need to pass args as list here
-                else:
-                    p.script_args = tuple(script_args) # Need to pass args as tuple here
-                    processed = process_images(p)
-                shared.state.end()
-
-        b64images = list(map(encode_pil_to_base64, processed.images)) if send_images else []
-
-        if not img2imgreq.include_init_images:
-            img2imgreq.init_images = None
-            img2imgreq.mask = None
-
-        return models.ImageToImageResponse(images=b64images, parameters=vars(img2imgreq), info=processed.js())
-
+  
     def img2img_pipeline(self, img2imgreq: models.StableDiffusionImg2ImgProcessingAPI):
         init_images = img2imgreq.init_images
         if init_images is None:
@@ -965,7 +905,7 @@ class Api:
         args.pop('save_images', None)
 
         with self.queue_lock:
-            with closing(StableDiffusionPipelineImg2Img(sd_model=shared.sd_model, **args)) as p:
+            with closing(pipeline.StableDiffusionPipelineImg2Img(sd_model=shared.sd_model, **args)) as p:
                 p.init_images = [decode_base64_to_image(x) for x in init_images]
                 p.scripts = script_runner
                 p.outpath_grids = opts.outdir_img2img_grids

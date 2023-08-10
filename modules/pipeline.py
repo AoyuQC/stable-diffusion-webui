@@ -1080,7 +1080,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
         
         # prepare timesteps
-        self.scheduler = LMSDiscreteScheduler.from_config(self.scheduler.config)
+        self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config)
         self.scheduler.set_timesteps(self.steps)
 
         for t in tqdm(self.scheduler.timesteps):
@@ -1316,6 +1316,13 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         self.mask = None
         self.nmask = None
         self.image_conditioning = None
+        self.tokenizer = pipeline.tokenizer
+        self.unet = pipeline.unet
+        self.vae = pipeline.vae
+        self.scheduler = pipeline.scheduler
+        self.text_encoder = pipeline.text_encoder
+        self.decode_latents = pipeline.decode_latents
+        self.generator = torch.Generator(device=shared.device)
 
     def init(self, all_prompts, all_seeds, all_subseeds):
         self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
@@ -1417,8 +1424,11 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         image = torch.from_numpy(batch_images)
         image = 2. * image - 1.
         image = image.to(shared.device, dtype=devices.dtype_vae)
+        
+        self.init_latent = self.vae.encode(image).latent_dist.sample(self.generator)
+        self.init_latent = 0.18215 * self.init_latent
 
-        self.init_latent = self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(image))
+        init_latent_old = self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(image))
 
         if self.resize_mode == 3:
             self.init_latent = torch.nn.functional.interpolate(self.init_latent, size=(self.height // opt_f, self.width // opt_f), mode="bilinear")
@@ -1464,50 +1474,85 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         noise = x 
         from tqdm.auto import tqdm
 
-        prompt = ["a photograph of an astronaut riding a horse"]
-        height = 512
-        width = 512
-        num_inference_steps = 25
-        guidance_scale = 7.5
-        strength = 0.75
-        num_images_per_prompt = self.n_iter
-        torch_device = "cuda"
 
         # text embedding
         text_input = self.tokenizer(
-            prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
+            self.prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
         )
         with torch.no_grad():
-            text_embeddings = self.text_encoder(text_input.input_ids.to(torch_device))[0]
+            text_embeddings = self.text_encoder(text_input.input_ids.to(shared.device))[0]
         
-        # set timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=torch_device)
-        timesteps, num_inference_steps = self.get_timesteps(num_inference_steps, strength, torch_device)
-        latent_timestep = timesteps[:1].repeat(self.batch_size * num_images_per_prompt)
+        do_classifier_free_guidance = self.cfg_scale > 1.0
+        # get unconditional embeddings for classifier free guidance
+        if do_classifier_free_guidance:
+            max_length = text_input.input_ids.shape[-1]
+            uncond_input = self.tokenizer(
+                [""] * self.batch_size, padding="max_length", max_length=max_length, return_tensors="pt"
+            )
+            uncond_embeddings = self.text_encoder(uncond_input.input_ids.to(shared.device))[0]
 
-        init_latents = self.scheduler.add_noise(init_latents, noise, latent_timestep)
+            # For classifier free guidance, we need to do two forward passes.
+            # Here we concatenate the unconditional and text embeddings into a single batch
+            # to avoid doing two forward passes
+            text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
+
+
+        # set timesteps
+        self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config)
+        self.scheduler.set_timesteps(self.steps, device=shared.device)
+        timesteps, num_inference_steps = self.get_timesteps(self.steps, self.denoising_strength, shared.device)
+        latent_timestep = timesteps[:1].repeat(self.batch_size * self.n_iter)
+        
+        init_latents = self.scheduler.add_noise(self.init_latent, noise, latent_timestep)
         latents = init_latents
-        for t in tqdm(self.scheduler.timesteps):
+        num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
+        for t in tqdm(timesteps):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
-            latent_model_input = torch.cat([latents] * 2)
+            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+            #latent_model_input = torch.cat([latents] * 2)
 
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
 
             # predict the noise residual
             with torch.no_grad():
-                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
+                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)[0]
 
             # perform guidance
-            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+            if do_classifier_free_guidance:
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
+            #noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+            #noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
 
             # compute the previous noisy sample x_t -> x_t-1
-            latents = self.scheduler.step(noise_pred, t, latents).prev_sample
+            latents = self.scheduler.step(noise_pred, t, latents)[0]
         
         samples = latents
 
         if self.mask is not None:
             samples = samples * self.nmask + self.init_latent * self.mask
+        
+        ##### debug for show the results
+        images = pipeline.decode_latents(latents)
+        # 9. Run safety checker
+        # image, has_nsfw_concept = self.run_safety_checker(image, shared.device, prompt_embeds.dtype)
+        # 10. Convert to PIL
+        def numpy_to_pil(images):
+            """
+            Convert a numpy image or a batch of images to a PIL image.
+            """
+            if images.ndim == 3:
+                images = images[None, ...]
+            images = (images * 255).round().astype("uint8")
+            if images.shape[-1] == 1:
+                # special case for grayscale (single channel) images
+                pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
+            else:
+                pil_images = [Image.fromarray(image) for image in images]
+            return pil_images
+        images = numpy_to_pil(images)
+        images[0].save("test_img2img_diffuser.png")
+
 
         del x
         devices.torch_gc()
