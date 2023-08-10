@@ -808,7 +808,7 @@ class Api:
                     response = self.txt2img_pipeline(req.txt2img_payload)
                     logger.info(
                         f"{threading.current_thread().ident}_{threading.current_thread().name}_______ txt2img end !!!!!!!! {len(response.json())}")
-                    return response.json()
+                    return response
             elif req.task == 'img2img':
                 #with self.queue_lock:
                 response = self.img2img_pipeline(req.img2img_payload)
