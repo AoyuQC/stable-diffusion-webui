@@ -814,7 +814,7 @@ class Api:
                 response = self.img2img_pipeline(req.img2img_payload)
                 logger.info(
                     f"{threading.current_thread().ident}_{threading.current_thread().name}_______ img2img end !!!!!!!! {len(response.json())}")
-                return response.json()
+                return response
             elif req.task == 'interrogate_clip' or req.task == 'interrogate_deepbooru':
                 logger.info("interrogate not implemented!")
                 return 0

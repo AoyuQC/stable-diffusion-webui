@@ -1428,7 +1428,9 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         
         self.init_latent = self.vae.encode(image).latent_dist.sample(self.generator)
         self.init_latent = self.vae.config.scaling_factor * self.init_latent
-
+        
+        #old_latent = self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(image))
+        
         if self.resize_mode == 3:
             self.init_latent = torch.nn.functional.interpolate(self.init_latent, size=(self.height // opt_f, self.width // opt_f), mode="bilinear")
 
