@@ -31,6 +31,15 @@ from tqdm import tqdm
 
 from einops import repeat, rearrange
 from blendmodes.blend import blendLayers, BlendType
+from diffusers import (
+    DDPMScheduler,
+    DDIMScheduler,
+    PNDMScheduler,
+    LMSDiscreteScheduler,
+    EulerDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
+    DPMSolverMultistepScheduler,
+)
 
 
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
@@ -1071,6 +1080,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
         
         # prepare timesteps
+        self.scheduler = LMSDiscreteScheduler.from_config(self.scheduler.config)
         self.scheduler.set_timesteps(self.steps)
 
         for t in tqdm(self.scheduler.timesteps):
