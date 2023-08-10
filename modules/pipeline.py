@@ -1082,6 +1082,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         # prepare timesteps
         self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config)
         self.scheduler.set_timesteps(self.steps)
+        latents = latents * self.scheduler.init_noise_sigma
 
         for t in tqdm(self.scheduler.timesteps):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
