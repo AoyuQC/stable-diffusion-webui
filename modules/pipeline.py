@@ -129,8 +129,10 @@ class StableDiffusionProcessing:
         self.outpath_samples: str = outpath_samples
         self.outpath_grids: str = outpath_grids
         self.prompt: str = prompt
+        self.prompt_2: str = None
         self.prompt_for_display: str = None
         self.negative_prompt: str = (negative_prompt or "")
+        self.negative_prompt_2: str = None
         self.styles: list = styles or []
         self.seed: int = seed
         self.subseed: int = subseed
@@ -808,7 +810,6 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                 image = pipeline.vae.decode(latents).sample
                 image = (image / 2 + 0.5).clamp(0, 1)
                 x_samples_ddim = image
-                # x_samples_ddim = pipeline.decode_latents(samples_ddim)
 
             # x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
             # x_samples_ddim = torch.stack(x_samples_ddim).float()
@@ -977,11 +978,13 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         self.hr_c = None
         self.hr_uc = None
         self.tokenizer = pipeline.tokenizer
+        self.tokenizer_2 = None ##for SDXL
         self.unet = pipeline.unet
-        # self.vae = pipeline.vae
+        self.vae = pipeline.vae
         self.scheduler = pipeline.scheduler
         self.text_encoder = pipeline.text_encoder
-        # self.decode_latents = pipeline.decode_latents
+        self.text_encoder_2 = None ##for SDXL
+        self.decode_latents = pipeline.decode_latents
 
     def init(self, all_prompts, all_seeds, all_subseeds):
         if self.enable_hr:
@@ -1067,17 +1070,76 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
 
         latents = create_random_tensors([opt_C, self.height // opt_f, self.width // opt_f], seeds=seeds, subseeds=subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w, p=self)
 
-        # prompt text embedding
-        text_input = self.tokenizer(
-            self.prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
-        )
-        with torch.no_grad():
-            text_embeddings = self.text_encoder(text_input.input_ids.to(shared.device))[0]
+        do_classifier_free_guidance = self.cfg_scale > 1.0
 
-        max_length = text_input.input_ids.shape[-1]
-        uncond_input = self.tokenizer([""] * self.batch_size, padding="max_length", max_length=max_length, return_tensors="pt")
-        uncond_embeddings = self.text_encoder(uncond_input.input_ids.to(shared.device))[0]
-        text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
+        if self.prompt is not None and isinstance(self.prompt, str):
+            prompt_batch_size = 1
+        elif self.prompt is not None and isinstance(self.prompt, list):
+            prompt_batch_size = len(self.prompt)
+
+        ## SDXL ###
+        model_type = 'SD' ### 'SDXL'
+        if model_type == 'SDXL':
+            self.prompt_2 = self.prompt_2 or self.prompt
+            self.negative_prompt = self.negative_prompt or ""
+            self.negative_prompt_2 = self.negative_prompt_2 or self.negative_prompt
+        
+        prompts = [self.prompt, self.prompt_2] if self.prompt_2 is not None else [self.prompt]
+        negative_prompts = [self.negative_prompt, self.negative_prompt_2] if self.negative_prompt_2 is not None else [self.negative_prompt]
+        
+        # Define tokenizers and text encoders
+        tokenizers = [self.tokenizer, self.tokenizer_2] if self.tokenizer is not None else [self.tokenizer_2]
+        text_encoders = (
+            [self.text_encoder, self.text_encoder_2] if self.text_encoder is not None else [self.text_encoder_2]
+        )
+
+        # prompt text embedding
+        text_embeddings_list = []
+        for prompt, tokenizer, text_encoder in zip(prompts, tokenizers, text_encoders):
+            text_input = tokenizer(
+                prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
+            )
+            with torch.no_grad():
+                text_embeddings = text_encoder(text_input.input_ids.to(shared.device))[0]
+            text_embeddings_list.append(text_embeddings)
+        text_embeddings = torch.concat(text_embeddings_list, dim=-1)
+
+
+        if do_classifier_free_guidance:
+            negative_prompt_embeds_list = []
+            max_length = text_embeddings.shape[1]
+            for negative_prompt, tokenizer, text_encoder in zip(negative_prompts, tokenizers, text_encoders):
+                uncond_input = tokenizer(
+                    negative_prompt,
+                    padding="max_length",
+                    max_length=max_length,
+                    truncation=True,
+                    return_tensors="pt",
+                )
+
+                negative_prompt_embeds = text_encoder(
+                    uncond_input.input_ids.to(shared.device),
+                )[0]
+                # # We are only ALWAYS interested in the pooled output of the final text encoder
+                # negative_pooled_prompt_embeds = negative_prompt_embeds[0]
+                # negative_prompt_embeds = negative_prompt_embeds.hidden_states[-2]
+
+                negative_prompt_embeds_list.append(negative_prompt_embeds)
+
+            negative_prompt_embeds = torch.concat(negative_prompt_embeds_list, dim=-1)
+        
+        text_embeddings = text_embeddings.to(dtype=self.text_encoder.dtype, device=shared.device)
+        bs_embed, seq_len, _ = text_embeddings.shape
+        # duplicate text embeddings for each generation per prompt, using mps friendly method
+        text_embeddings = text_embeddings.repeat(1, self.n_iter, 1)
+        text_embeddings = text_embeddings.view(bs_embed * self.n_iter, seq_len, -1)
+
+        if do_classifier_free_guidance:
+            seq_len = negative_prompt_embeds.shape[1]
+            negative_prompt_embeds = negative_prompt_embeds.to(dtype=self.text_encoder.dtype, device=shared.device)
+            negative_prompt_embeds = negative_prompt_embeds.repeat(1, self.n_iter, 1)
+            negative_prompt_embeds = negative_prompt_embeds.view(prompt_batch_size * self.n_iter, seq_len, -1)
+            text_embeddings = torch.cat([negative_prompt_embeds, text_embeddings])
         
         # prepare timesteps
         self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config)
@@ -1097,15 +1159,16 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 noise_pred = noise_pred.sample
 
             # perform guidance
-            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-            noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
+            if do_classifier_free_guidance:
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
 
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
         # latents = 1 / 0.18215 * latents
         # samples = copy.deepcopy(latents)
         samples = latents
-        images = pipeline.decode_latents(latents)
+        images = self.decode_latents(latents)
         # 9. Run safety checker
         # image, has_nsfw_concept = self.run_safety_checker(image, shared.device, prompt_embeds.dtype)
         # 10. Convert to PIL
@@ -1426,7 +1489,8 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         image = 2. * image - 1.
         image = image.to(shared.device, dtype=devices.dtype_vae)
         
-        self.init_latent = self.vae.encode(image).latent_dist.sample(self.generator)
+        self.init_latent = self.vae.encode(image)
+        self.init_latent = self.init_latent.latent_dist.sample(self.generator)
         self.init_latent = self.vae.config.scaling_factor * self.init_latent
         
         #old_latent = self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(image))
@@ -1457,7 +1521,7 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         # get the original timestep using init_timestep
         init_timestep = min(int(num_inference_steps * strength), num_inference_steps)
 
-        t_start = max(num_inference_steps - init_timestep, 0)
+        t_start = max(num_inference_steps - init_timestep - 1, 0)
         timesteps = self.scheduler.timesteps[t_start:]
 
         return timesteps, num_inference_steps - t_start
@@ -1504,13 +1568,20 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         
         init_latents = self.scheduler.add_noise(self.init_latent, noise, latent_timestep)
         latents = init_latents
+
+        num_channels_unet = self.unet.config.in_channels
         
-        for t in tqdm(timesteps):
+        for i, t in tqdm(enumerate(timesteps)):
             # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
             #latent_model_input = torch.cat([latents] * 2)
 
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
+
+            if self.image_mask is not None and num_channels_unet == 9:
+                mask_image_conditioning = torch.cat([self.image_conditioning] * 2) if do_classifier_free_guidance else self.image_conditioning
+                latent_model_input = torch.cat([latent_model_input, mask_image_conditioning], dim=1)
+
 
             # predict the noise residual
             with torch.no_grad():
@@ -1525,6 +1596,19 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
 
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_pred, t, latents)[0]
+
+            if self.image_mask is not None and num_channels_unet == 4:
+                    init_latents_proper = self.init_latent
+                    init_mask = self.mask
+
+                    if i < len(timesteps) - 1:
+                        noise_timestep = timesteps[i + 1]
+                        init_latents_proper = self.scheduler.add_noise(
+                            init_latents_proper, noise, torch.tensor([noise_timestep])
+                        )
+
+                    latents = (1 - init_mask) * init_latents_proper + init_mask * latents
+
         
         samples = latents
 
