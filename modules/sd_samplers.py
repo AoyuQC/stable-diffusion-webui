@@ -1,5 +1,15 @@
 from modules import sd_samplers_compvis, sd_samplers_kdiffusion, shared
 
+from diffusers import (
+    DDPMScheduler,
+    DDIMScheduler,
+    PNDMScheduler,
+    LMSDiscreteScheduler,
+    EulerDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
+    DPMSolverMultistepScheduler,
+)
+
 # imports for functions that previously were here and are used by other modules
 from modules.sd_samplers_common import samples_to_image_grid, sample_to_image  # noqa: F401
 
@@ -51,6 +61,15 @@ def set_samplers():
         samplers_map[sampler.name.lower()] = sampler.name
         for alias in sampler.aliases:
             samplers_map[alias.lower()] = sampler.name
+
+def update_sampler(name, pipeline, pipeline_name):
+
+    if name == 'Euler a':
+        pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(pipeline.scheduler.config)
+    else:
+        raise NotImplementedError
+
+    return pipeline
 
 
 set_samplers()

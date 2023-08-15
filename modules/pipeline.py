@@ -1070,7 +1070,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
         # update sampler
-        sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
+        self.sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
 
         latent_scale_mode = shared.latent_upscale_modes.get(self.hr_upscaler, None) if self.hr_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
         if self.enable_hr and latent_scale_mode is None:
