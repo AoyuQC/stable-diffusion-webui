@@ -18,6 +18,7 @@ from modules import paths, shared, modelloader, devices, script_callbacks, sd_va
 from modules.sd_hijack_inpainting import do_inpainting_hijack
 from modules.timer import Timer
 import tomesd
+from diffusers import StableDiffusionPipeline
 
 model_dir = "Stable-diffusion"
 model_path = os.path.abspath(os.path.join(paths.models_path, model_dir))
@@ -641,3 +642,127 @@ def apply_token_merging(sd_model, token_merging_ratio):
         )
 
     sd_model.applied_token_merged_ratio = token_merging_ratio
+
+
+class DiffuserPipelineData:
+    def __init__(self):
+        self.sd_pipeline = None
+        self.was_loaded_at_least_once = False
+        self.lock = threading.Lock()
+
+    def get_sd_pipeline(self):
+        if self.was_loaded_at_least_once:
+            return self.sd_pipeline
+
+        if self.sd_pipeline is None:
+            with self.lock:
+                if self.sd_pipeline is not None or self.was_loaded_at_least_once:
+                    return self.sd_pipeline
+
+                try:
+                    load_pipeline()
+                except Exception as e:
+                    errors.display(e, "loading diffuser pipeline", full_traceback=True)
+                    print("", file=sys.stderr)
+                    print("Diffuser pipeline failed to load", file=sys.stderr)
+                    self.sd_pipeline = None
+
+        return self.sd_pipeline
+
+    def set_sd_pipeline(self, v):
+        self.sd_pipeline = v
+
+
+pipeline_data = DiffuserPipelineData()
+
+def load_pipeline_weights(sd_pipeline, checkpoint_info, timer):
+    sd_model_hash = checkpoint_info.calculate_shorthash()
+    timer.record("calculate hash")
+
+    shared.opts.data["sd_model_checkpoint"] = checkpoint_info.title
+    sd_pipeline = sd_pipeline.from_single_file(checkpoint_info, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+    sd_pipeline.to((devices.device))
+
+    # sd_pipeline.is_sdxl = hasattr(model, 'conditioner')
+    # sd_pipeline.is_sd2 = not sd_pipeline.is_sdxl and hasattr(model.cond_stage_model, 'model')
+    # sd_pipeline.is_sd1 = not sd_pipeline.is_sdxl and not sd_pipeline.is_sd2
+    # timer.record("apply weights to model")  
+
+    sd_pipeline.sd_model_hash = sd_model_hash
+    sd_pipeline.sd_model_checkpoint = checkpoint_info.filename
+    sd_pipeline.sd_checkpoint_info = checkpoint_info
+    shared.opts.data["sd_checkpoint_hash"] = checkpoint_info.sha256
+
+
+def load_pipeline(checkpoint_info=None):
+    checkpoint_info = checkpoint_info or select_checkpoint()
+
+    if pipeline_data.sd_pipeline:
+        pipeline_data.sd_pipeline = None
+        gc.collect()
+        devices.torch_gc()
+
+
+    timer = Timer()
+
+    
+    sd_pipeline = StableDiffusionPipeline()
+
+    timer.record("create model")
+
+    load_pipeline_weights(sd_pipeline, checkpoint_info, timer)
+
+    sd_pipeline.to(shared.device)
+
+    timer.record("move model to device")
+
+    pipeline_data.sd_pipeline = sd_pipeline
+    pipeline_data.was_loaded_at_least_once = True
+
+    
+    #sd_hijack.model_hijack.embedding_db.load_textual_inversion_embeddings(force_reload=True)  # Reload embeddings after model load as they may or may not fit the model
+
+    timer.record("load textual inversion embeddings")
+
+    print(f"Model loaded in {timer.summary()}.")
+
+    return sd_pipeline
+
+
+def reload_pipeline_weights(sd_pipeline=None, info=None):
+    from modules import devices
+    checkpoint_info = info or select_checkpoint()
+
+    if not sd_pipeline:
+        sd_pipeline = pipeline_data.sd_pipeline
+
+    if sd_pipeline is None:  # previous model load failed
+        current_checkpoint_info = None
+    else:
+        current_checkpoint_info = sd_pipeline.sd_checkpoint_info
+        if sd_pipeline.sd_model_checkpoint == checkpoint_info.filename:
+            return
+
+        sd_pipeline.to(devices.cpu)
+
+    timer = Timer()
+
+    if sd_pipeline is None:
+        del sd_pipeline
+        load_pipeline(checkpoint_info)
+        return pipeline_data.sd_pipeline
+
+    try:
+        load_pipeline_weights(sd_pipeline, checkpoint_info, timer)
+    except Exception:
+        print("Failed to load checkpoint, restoring previous")
+        load_pipeline_weights(sd_pipeline, current_checkpoint_info, None, timer)
+        raise
+    finally:
+        if not shared.cmd_opts.lowvram and not shared.cmd_opts.medvram:
+            sd_pipeline.to(devices.device)
+            timer.record("move model to device")
+
+    print(f"Pipeline Weights loaded in {timer.summary()}.")
+
+    return sd_pipeline
