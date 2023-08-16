@@ -31,16 +31,8 @@ from tqdm import tqdm
 
 from einops import repeat, rearrange
 from blendmodes.blend import blendLayers, BlendType
-from diffusers import (
-    DDPMScheduler,
-    DDIMScheduler,
-    PNDMScheduler,
-    LMSDiscreteScheduler,
-    EulerDiscreteScheduler,
-    EulerAncestralDiscreteScheduler,
-    DPMSolverMultistepScheduler,
-)
 
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
 opt_C = 4
@@ -122,7 +114,68 @@ class StableDiffusionProcessing:
     cached_uc = [None, None]
     cached_c = [None, None]
 
-    def __init__(self, sd_model=None, outpath_samples=None, outpath_grids=None, prompt: str = "", styles: List[str] = None, seed: int = -1, subseed: int = -1, subseed_strength: float = 0, seed_resize_from_h: int = -1, seed_resize_from_w: int = -1, seed_enable_extras: bool = True, sampler_name: str = None, batch_size: int = 1, n_iter: int = 1, steps: int = 50, cfg_scale: float = 7.0, width: int = 512, height: int = 512, restore_faces: bool = False, tiling: bool = False, do_not_save_samples: bool = False, do_not_save_grid: bool = False, extra_generation_params: Dict[Any, Any] = None, overlay_images: Any = None, negative_prompt: str = None, eta: float = None, do_not_reload_embeddings: bool = False, denoising_strength: float = 0, ddim_discretize: str = None, s_min_uncond: float = 0.0, s_churn: float = 0.0, s_tmax: float = None, s_tmin: float = 0.0, s_noise: float = 1.0, override_settings: Dict[str, Any] = None, override_settings_restore_afterwards: bool = True, sampler_index: int = None, script_args: list = None, output_type: str = "latent"):
+    def __init__(
+        self, 
+        sd_model=None, 
+        outpath_samples=None, 
+        outpath_grids=None, 
+        prompt: str = "", 
+        styles: List[str] = None, 
+        seed: int = -1, 
+        subseed: int = -1, 
+        subseed_strength: float = 0, 
+        seed_resize_from_h: int = -1, 
+        seed_resize_from_w: int = -1, 
+        seed_enable_extras: bool = True, 
+        sampler_name: str = None, 
+        batch_size: int = 1, 
+        n_iter: int = 1, 
+        steps: int = 50, 
+        cfg_scale: float = 7.0, 
+        width: int = 512, 
+        height: int = 512, 
+        restore_faces: bool = False, 
+        tiling: bool = False, 
+        do_not_save_samples: bool = False, 
+        do_not_save_grid: bool = False, 
+        extra_generation_params: Dict[Any, Any] = None, 
+        overlay_images: Any = None, 
+        negative_prompt: str = None, 
+        eta: float = None, 
+        do_not_reload_embeddings: bool = False, 
+        denoising_strength: float = 0, 
+        ddim_discretize: str = None, 
+        s_min_uncond: float = 0.0, 
+        s_churn: float = 0.0, 
+        s_tmax: float = None, 
+        s_tmin: float = 0.0, 
+        s_noise: float = 1.0, 
+        override_settings: Dict[str, Any] = None, 
+        override_settings_restore_afterwards: bool = True, 
+        sampler_index: int = None, 
+        script_args: list = None, 
+        pipeline_name: str = "StableDiffusionPipeline", 
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+        latents: Optional[torch.FloatTensor] = None,
+        prompt_embeds: Optional[torch.FloatTensor] = None,
+        negative_prompt_embeds: Optional[torch.FloatTensor] = None,
+        pooled_prompt_embeds: Optional[torch.FloatTensor] = None,
+        negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None,
+        output_type: Optional[str] = "latent",
+        callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
+        callback_steps: int = 1,
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+        guidance_rescale: float = 0.0,
+        original_size: Optional[Tuple[int, int]] = None,
+        crops_coords_top_left: Tuple[int, int] = (0, 0),
+        target_size: Optional[Tuple[int, int]] = None,
+        denoising_start: Optional[float] = None,
+        denoising_end: Optional[float] = None,
+        use_refiner: bool = False,
+        strength: float = 0.3,
+        aesthetic_score: float = 6.0,
+        negative_aesthetic_score: float = 2.5,
+    ):
         if sampler_index is not None:
             print("sampler_index argument for StableDiffusionProcessing does not do anything; use sampler_name", file=sys.stderr)
 
@@ -202,6 +255,30 @@ class StableDiffusionProcessing:
         self.user = None
         # control diffuser output
         self.output_type = output_type
+        self.pipeline_name = pipeline_name
+        self.generator = generator
+        self.prompt_embeds = prompt_embeds
+        self.negative_prompt_embeds = negative_prompt_embeds
+        self.output_type = output_type
+        self.callback = callback
+        self.callback_steps = callback_steps
+        self.cross_attention_kwargs = cross_attention_kwargs
+
+        # parameters for sdxl
+        self.denoising_end = denoising_end
+        self.pooled_prompt_embeds = pooled_prompt_embeds
+        self.negative_pooled_prompt_embeds = negative_pooled_prompt_embeds
+        self.guidance_rescale = guidance_rescale
+        self.original_size = original_size
+        self.crops_coords_top_left = crops_coords_top_left
+        self.target_size = target_size
+        self.use_refiner = use_refiner
+
+        # parameters for refiner
+        self.strength = strength
+        self.denoising_start = denoising_start
+        self.aesthetic_score = aesthetic_score
+        self.negative_aesthetic_score = negative_aesthetic_score
 
     @property
     def sd_model(self):
@@ -209,7 +286,9 @@ class StableDiffusionProcessing:
 
     @property
     def sd_pipeline(self):
-        return shared.sd_pipeline
+        return pipeline
+        #TODO: return original pipeline
+        # return shared.sd_pipeline
 
     def txt2img_image_conditioning(self, x, width=None, height=None):
         self.is_using_inpainting_conditioning = self.sd_model.model.conditioning_key in {'hybrid', 'concat'}
@@ -983,15 +1062,15 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         self.cached_hr_c = StableDiffusionPipelineTxt2Img.cached_hr_c
         self.hr_c = None
         self.hr_uc = None
-        self.tokenizer = self.sd_pipeline.tokenizer
-        self.tokenizer_2 = None ##for SDXL
-        self.unet = self.sd_pipeline.unet
-        self.vae = self.sd_pipeline.vae
-        self.scheduler = self.sd_pipeline.scheduler
-        self.text_encoder = self.sd_pipeline.text_encoder
-        self.text_encoder_2 = None ##for SDXL
-        self.decode_latents = self.sd_pipeline.decode_latents
-        self.pipeline_name = self.sd_pipeline.pipeline_name
+        # self.tokenizer = self.sd_pipeline.tokenizer
+        # self.tokenizer_2 = None ##for SDXL
+        # self.unet = self.sd_pipeline.unet
+        # self.vae = self.sd_pipeline.vae
+        # self.scheduler = self.sd_pipeline.scheduler
+        # self.text_encoder = self.sd_pipeline.text_encoder
+        # self.text_encoder_2 = None ##for SDXL
+        # self.decode_latents = self.sd_pipeline.decode_latents
+        # self.pipeline_name = self.sd_pipeline.pipeline_name
 
     def init(self, all_prompts, all_seeds, all_subseeds):
         if self.enable_hr:
@@ -1071,7 +1150,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
         # update sampler
-        self.sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
+        sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
 
         latent_scale_mode = shared.latent_upscale_modes.get(self.hr_upscaler, None) if self.hr_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
         if self.enable_hr and latent_scale_mode is None:
@@ -1101,7 +1180,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         negative_prompt_2 = self.negative_prompt_2 or self.negative_prompt
         denoising_end = self.denoising_end
         pooled_prompt_embeds = self.pooled_prompt_embeds
-        negative_pooled_prompt_embeds = self.negative_pooled_embeds
+        negative_pooled_prompt_embeds = self.negative_pooled_prompt_embeds
         guidance_rescale = self.guidance_rescale
         original_size = self.original_size
         crops_coords_top_left = self.crops_coords_top_left
@@ -1117,7 +1196,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         pipeline_name = self.pipeline_name
         # default output: latents
         if pipeline_name == 'StableDiffusionPipeline':
-            images = self.sd_pipeline(
+            images = sd_pipeline(
                 prompt = prompt,
                 height = height,
                 width = width,
@@ -1136,7 +1215,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 callback_steps = callback_steps,
                 cross_attention_kwargs = cross_attention_kwargs).images[0]
         elif pipeline_name == 'StableDiffusionXLPipeline':
-            images = self.sd_pipeline(
+            images = sd_pipeline(
                 prompt = prompt,
                 prompt_2 = prompt_2,
                 height = height,
@@ -1194,7 +1273,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                     aesthetic_score = aesthetic_score,
                     negative_aesthetic_score = negative_aesthetic_score).images[0]
 
-        samples = images
+        samples = images[None,:,:,:]
         # do_classifier_free_guidance = self.cfg_scale > 1.0
 
         # if self.prompt is not None and isinstance(self.prompt, str):
@@ -1312,6 +1391,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         #     return pil_images
         # # images = numpy_to_pil(images)
         # # images[0].save("test.png")
+
 
         if not self.enable_hr:
             return samples
