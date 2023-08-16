@@ -64,8 +64,15 @@ def set_samplers():
 
 def update_sampler(name, pipeline, pipeline_name):
 
+    # #TODO check compatibility
+    # check_comp(name, pipeline)
+
     if name == 'Euler a':
         pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(pipeline.scheduler.config)
+    elif name == 'Euler':
+        pipeline.scheduler = EulerDiscreteScheduler.from_config(pipeline.scheduler.config)
+    elif name == 'LMS':
+        pipeline.scheduler = LMSDiscreteScheduler.from_config(pipeline.scheduler.config)
     else:
         raise NotImplementedError
 
