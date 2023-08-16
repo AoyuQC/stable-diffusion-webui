@@ -45,9 +45,9 @@ from diffusers import (
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
 opt_C = 4
 opt_f = 8
-from diffusers import StableDiffusionPipeline
-pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
-pipeline.to("cuda")
+#from diffusers import StableDiffusionPipeline
+#pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
+#pipeline.to("cuda")
 
 def setup_color_correction(image):
     logging.info("Calibrating color correction.")
@@ -812,8 +812,8 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
 
             with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
                 samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
-                latents = 1 / pipeline.vae.config.scaling_factor * samples_ddim
-                image = pipeline.vae.decode(latents).sample
+                latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
+                image = p.sd_pipeline.vae.decode(latents).sample
                 image = (image / 2 + 0.5).clamp(0, 1)
                 x_samples_ddim = image
 
@@ -983,14 +983,15 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         self.cached_hr_c = StableDiffusionPipelineTxt2Img.cached_hr_c
         self.hr_c = None
         self.hr_uc = None
-        self.tokenizer = pipeline.tokenizer
+        self.tokenizer = self.sd_pipeline.tokenizer
         self.tokenizer_2 = None ##for SDXL
-        self.unet = pipeline.unet
-        self.vae = pipeline.vae
-        self.scheduler = pipeline.scheduler
-        self.text_encoder = pipeline.text_encoder
+        self.unet = self.sd_pipeline.unet
+        self.vae = self.sd_pipeline.vae
+        self.scheduler = self.sd_pipeline.scheduler
+        self.text_encoder = self.sd_pipeline.text_encoder
         self.text_encoder_2 = None ##for SDXL
-        self.decode_latents = pipeline.decode_latents
+        self.decode_latents = self.sd_pipeline.decode_latents
+        self.pipeline_name = self.sd_pipeline.pipeline_name
 
     def init(self, all_prompts, all_seeds, all_subseeds):
         if self.enable_hr:
@@ -1064,7 +1065,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 self.extra_generation_params["Hires upscaler"] = self.hr_upscaler
 
     def decode_latents(self):
-        return pipeline.decode_latents
+        return self.sd_pipeline.decode_latents
 
     def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
         # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)

@@ -758,6 +758,18 @@ class Shared(sys.modules[__name__].__class__):
         import modules.sd_models
 
         modules.sd_models.model_data.set_sd_model(value)
+    
+    @property
+    def sd_pipeline(self):
+        import modules.sd_models
+
+        return modules.sd_models.pipeline_data.get_sd_pipeline()
+
+    @sd_pipeline.setter
+    def sd_pipeline(self, value):
+        import modules.sd_models
+
+        modules.sd_models.pipeline_data.set_sd_pipeline(value)
 
 
 sd_model: LatentDiffusion = None  # this var is here just for IDE's type checking; it cannot be accessed because the class field above will be accessed instead

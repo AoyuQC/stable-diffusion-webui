@@ -675,25 +675,6 @@ class DiffuserPipelineData:
 
 pipeline_data = DiffuserPipelineData()
 
-def load_pipeline_weights(sd_pipeline, checkpoint_info, timer):
-    sd_model_hash = checkpoint_info.calculate_shorthash()
-    timer.record("calculate hash")
-
-    shared.opts.data["sd_model_checkpoint"] = checkpoint_info.title
-    sd_pipeline = sd_pipeline.from_single_file(checkpoint_info, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
-    sd_pipeline.to((devices.device))
-
-    # sd_pipeline.is_sdxl = hasattr(model, 'conditioner')
-    # sd_pipeline.is_sd2 = not sd_pipeline.is_sdxl and hasattr(model.cond_stage_model, 'model')
-    # sd_pipeline.is_sd1 = not sd_pipeline.is_sdxl and not sd_pipeline.is_sd2
-    # timer.record("apply weights to model")  
-
-    sd_pipeline.sd_model_hash = sd_model_hash
-    sd_pipeline.sd_model_checkpoint = checkpoint_info.filename
-    sd_pipeline.sd_checkpoint_info = checkpoint_info
-    shared.opts.data["sd_checkpoint_hash"] = checkpoint_info.sha256
-
-
 def load_pipeline(checkpoint_info=None):
     checkpoint_info = checkpoint_info or select_checkpoint()
 
@@ -705,12 +686,22 @@ def load_pipeline(checkpoint_info=None):
 
     timer = Timer()
 
-    
-    sd_pipeline = StableDiffusionPipeline()
-
     timer.record("create model")
 
-    load_pipeline_weights(sd_pipeline, checkpoint_info, timer)
+    sd_model_hash = checkpoint_info.calculate_shorthash()
+    timer.record("calculate hash")
+
+    shared.opts.data["sd_model_checkpoint"] = checkpoint_info.title
+    sd_pipeline = StableDiffusionPipeline.from_single_file(checkpoint_info, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+    sd_pipeline.to((devices.device))
+
+    pipeline_name = str(type(sd_pipeline)).split('.')[-1][:-2]
+
+    sd_pipeline.sd_model_hash = sd_model_hash
+    sd_pipeline.sd_model_checkpoint = checkpoint_info.filename
+    sd_pipeline.sd_checkpoint_info = checkpoint_info
+    sd_pipeline.pipeline_name = pipeline_name
+    shared.opts.data["sd_checkpoint_hash"] = checkpoint_info.sha256
 
     sd_pipeline.to(shared.device)
 
@@ -721,8 +712,7 @@ def load_pipeline(checkpoint_info=None):
 
     
     #sd_hijack.model_hijack.embedding_db.load_textual_inversion_embeddings(force_reload=True)  # Reload embeddings after model load as they may or may not fit the model
-
-    timer.record("load textual inversion embeddings")
+    #timer.record("load textual inversion embeddings")
 
     print(f"Model loaded in {timer.summary()}.")
 
@@ -746,23 +736,15 @@ def reload_pipeline_weights(sd_pipeline=None, info=None):
         sd_pipeline.to(devices.cpu)
 
     timer = Timer()
-
-    if sd_pipeline is None:
-        del sd_pipeline
-        load_pipeline(checkpoint_info)
-        return pipeline_data.sd_pipeline
-
+    del sd_pipeline
     try:
-        load_pipeline_weights(sd_pipeline, checkpoint_info, timer)
+        load_pipeline(checkpoint_info)
     except Exception:
         print("Failed to load checkpoint, restoring previous")
-        load_pipeline_weights(sd_pipeline, current_checkpoint_info, None, timer)
-        raise
-    finally:
-        if not shared.cmd_opts.lowvram and not shared.cmd_opts.medvram:
-            sd_pipeline.to(devices.device)
-            timer.record("move model to device")
+        load_pipeline(current_checkpoint_info)
 
-    print(f"Pipeline Weights loaded in {timer.summary()}.")
+    
+    load_pipeline(checkpoint_info)
+    timer.record("move model to device")
 
-    return sd_pipeline
+    return pipeline_data.sd_pipeline
