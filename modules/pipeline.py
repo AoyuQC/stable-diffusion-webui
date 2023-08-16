@@ -122,7 +122,7 @@ class StableDiffusionProcessing:
     cached_uc = [None, None]
     cached_c = [None, None]
 
-    def __init__(self, sd_model=None, outpath_samples=None, outpath_grids=None, prompt: str = "", styles: List[str] = None, seed: int = -1, subseed: int = -1, subseed_strength: float = 0, seed_resize_from_h: int = -1, seed_resize_from_w: int = -1, seed_enable_extras: bool = True, sampler_name: str = None, batch_size: int = 1, n_iter: int = 1, steps: int = 50, cfg_scale: float = 7.0, width: int = 512, height: int = 512, restore_faces: bool = False, tiling: bool = False, do_not_save_samples: bool = False, do_not_save_grid: bool = False, extra_generation_params: Dict[Any, Any] = None, overlay_images: Any = None, negative_prompt: str = None, eta: float = None, do_not_reload_embeddings: bool = False, denoising_strength: float = 0, ddim_discretize: str = None, s_min_uncond: float = 0.0, s_churn: float = 0.0, s_tmax: float = None, s_tmin: float = 0.0, s_noise: float = 1.0, override_settings: Dict[str, Any] = None, override_settings_restore_afterwards: bool = True, sampler_index: int = None, script_args: list = None):
+    def __init__(self, sd_model=None, outpath_samples=None, outpath_grids=None, prompt: str = "", styles: List[str] = None, seed: int = -1, subseed: int = -1, subseed_strength: float = 0, seed_resize_from_h: int = -1, seed_resize_from_w: int = -1, seed_enable_extras: bool = True, sampler_name: str = None, batch_size: int = 1, n_iter: int = 1, steps: int = 50, cfg_scale: float = 7.0, width: int = 512, height: int = 512, restore_faces: bool = False, tiling: bool = False, do_not_save_samples: bool = False, do_not_save_grid: bool = False, extra_generation_params: Dict[Any, Any] = None, overlay_images: Any = None, negative_prompt: str = None, eta: float = None, do_not_reload_embeddings: bool = False, denoising_strength: float = 0, ddim_discretize: str = None, s_min_uncond: float = 0.0, s_churn: float = 0.0, s_tmax: float = None, s_tmin: float = 0.0, s_noise: float = 1.0, override_settings: Dict[str, Any] = None, override_settings_restore_afterwards: bool = True, sampler_index: int = None, script_args: list = None, output_type: str = "latent"):
         if sampler_index is not None:
             print("sampler_index argument for StableDiffusionProcessing does not do anything; use sampler_name", file=sys.stderr)
 
@@ -200,10 +200,16 @@ class StableDiffusionProcessing:
         self.c = None
 
         self.user = None
+        # control diffuser output
+        self.output_type = output_type
 
     @property
     def sd_model(self):
         return shared.sd_model
+
+    @property
+    def sd_pipeline(self):
+        return shared.sd_pipeline
 
     def txt2img_image_conditioning(self, x, width=None, height=None):
         self.is_using_inpainting_conditioning = self.sd_model.model.conditioning_key in {'hybrid', 'concat'}
@@ -1063,130 +1069,248 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
     def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
         # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
+        # update sampler
+        self.sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
+
         latent_scale_mode = shared.latent_upscale_modes.get(self.hr_upscaler, None) if self.hr_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
         if self.enable_hr and latent_scale_mode is None:
             if not any(x.name == self.hr_upscaler for x in shared.sd_upscalers):
                 raise Exception(f"could not find upscaler named {self.hr_upscaler}")
 
+        # common parameters for sd
+        prompt = self.prompt 
+        height = self.width
+        width = self.height
+        num_inference_steps = self.steps
+        guidance_scale = self.cfg_scale
+        negative_prompt = self.negative_prompt or ""
+        num_images_per_prompt = self.batch_size
+        eta = self.eta
+        generator = self.generator
         latents = create_random_tensors([opt_C, self.height // opt_f, self.width // opt_f], seeds=seeds, subseeds=subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w, p=self)
+        prompt_embeds = self.prompt_embeds
+        negative_prompt_embeds = self.negative_prompt_embeds
+        output_type = self.output_type
+        callback = self.callback
+        callback_steps = self.callback_steps
+        cross_attention_kwargs = self.cross_attention_kwargs
 
-        do_classifier_free_guidance = self.cfg_scale > 1.0
+        # parameters for sdxl
+        prompt_2 = self.prompt_2 or self.prompt
+        negative_prompt_2 = self.negative_prompt_2 or self.negative_prompt
+        denoising_end = self.denoising_end
+        pooled_prompt_embeds = self.pooled_prompt_embeds
+        negative_pooled_prompt_embeds = self.negative_pooled_embeds
+        guidance_rescale = self.guidance_rescale
+        original_size = self.original_size
+        crops_coords_top_left = self.crops_coords_top_left
+        target_size = self.target_size
+        use_refiner = self.use_refiner
 
-        if self.prompt is not None and isinstance(self.prompt, str):
-            prompt_batch_size = 1
-        elif self.prompt is not None and isinstance(self.prompt, list):
-            prompt_batch_size = len(self.prompt)
+        # parameters for refiner
+        strength = self.strength
+        denoising_start = self.denoising_start
+        aesthetic_score = self.aesthetic_score
+        negative_aesthetic_score = self.negative_aesthetic_score
 
-        ## SDXL ###
-        model_type = 'SD' ### 'SDXL'
-        if model_type == 'SDXL':
-            self.prompt_2 = self.prompt_2 or self.prompt
-            self.negative_prompt = self.negative_prompt or ""
-            self.negative_prompt_2 = self.negative_prompt_2 or self.negative_prompt
+        pipeline_name = self.pipeline_name
+        # default output: latents
+        if pipeline_name == 'StableDiffusionPipeline':
+            images = self.sd_pipeline(
+                prompt = prompt,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt= num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = latents,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds= negative_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs).images[0]
+        elif pipeline_name == 'StableDiffusionXLPipeline':
+            images = self.sd_pipeline(
+                prompt = prompt,
+                prompt_2 = prompt_2,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                denoising_end = denoising_end,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                negative_prompt_2 = negative_prompt_2,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = latents,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                pooled_prompt_embeds = pooled_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                guidance_rescale = guidance_rescale,
+                original_size = original_size,
+                crops_coords_top_left = crops_coords_top_left,
+                target_size = target_size).images[0]
+            if use_refiner:
+                images = self.refiner_pipeline(
+                    prompt = prompt,
+                    prompt_2 = prompt_2,
+                    image = images,
+                    strength = strength,
+                    num_inference_steps = num_inference_steps,
+                    denoising_start = denoising_start,
+                    denoising_end = denoising_end,
+                    guidance_scale = guidance_scale,
+                    negative_prompt = negative_prompt,
+                    negative_prompt_2 = negative_prompt_2,
+                    num_images_per_prompt = num_images_per_prompt,
+                    eta = eta,
+                    generator = generator,
+                    prompt_embeds = prompt_embeds,
+                    negative_prompt_embeds = negative_prompt_embeds,
+                    pooled_prompt_embeds = pooled_prompt_embeds,
+                    negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                    output_type = output_type,
+                    return_dict = True,
+                    callback = callback,
+                    callback_steps = callback_steps,
+                    cross_attention_kwargs = cross_attention_kwargs,
+                    guidance_rescale = guidance_rescale,
+                    original_size = original_size,
+                    crops_coords_top_left = crops_coords_top_left,
+                    target_size = target_size,
+                    aesthetic_score = aesthetic_score,
+                    negative_aesthetic_score = negative_aesthetic_score).images[0]
+
+        samples = images
+        # do_classifier_free_guidance = self.cfg_scale > 1.0
+
+        # if self.prompt is not None and isinstance(self.prompt, str):
+        #     prompt_batch_size = 1
+        # elif self.prompt is not None and isinstance(self.prompt, list):
+        #     prompt_batch_size = len(self.prompt)
+
+        # ## SDXL ###
+        # model_type = 'SD' ### 'SDXL'
+        # if model_type == 'SDXL':
+        #     self.prompt_2 = self.prompt_2 or self.prompt
+        #     self.negative_prompt = self.negative_prompt or ""
+        #     self.negative_prompt_2 = self.negative_prompt_2 or self.negative_prompt
         
-        prompts = [self.prompt, self.prompt_2] if self.prompt_2 is not None else [self.prompt]
-        negative_prompts = [self.negative_prompt, self.negative_prompt_2] if self.negative_prompt_2 is not None else [self.negative_prompt]
+        # prompts = [self.prompt, self.prompt_2] if self.prompt_2 is not None else [self.prompt]
+        # negative_prompts = [self.negative_prompt, self.negative_prompt_2] if self.negative_prompt_2 is not None else [self.negative_prompt]
         
-        # Define tokenizers and text encoders
-        tokenizers = [self.tokenizer, self.tokenizer_2] if self.tokenizer is not None else [self.tokenizer_2]
-        text_encoders = (
-            [self.text_encoder, self.text_encoder_2] if self.text_encoder is not None else [self.text_encoder_2]
-        )
+        # # Define tokenizers and text encoders
+        # tokenizers = [self.tokenizer, self.tokenizer_2] if self.tokenizer is not None else [self.tokenizer_2]
+        # text_encoders = (
+        #     [self.text_encoder, self.text_encoder_2] if self.text_encoder is not None else [self.text_encoder_2]
+        # )
 
-        # prompt text embedding
-        text_embeddings_list = []
-        for prompt, tokenizer, text_encoder in zip(prompts, tokenizers, text_encoders):
-            text_input = tokenizer(
-                prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
-            )
-            with torch.no_grad():
-                text_embeddings = text_encoder(text_input.input_ids.to(shared.device))[0]
-            text_embeddings_list.append(text_embeddings)
-        text_embeddings = torch.concat(text_embeddings_list, dim=-1)
+        # # prompt text embedding
+        # text_embeddings_list = []
+        # for prompt, tokenizer, text_encoder in zip(prompts, tokenizers, text_encoders):
+        #     text_input = tokenizer(
+        #         prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
+        #     )
+        #     with torch.no_grad():
+        #         text_embeddings = text_encoder(text_input.input_ids.to(shared.device))[0]
+        #     text_embeddings_list.append(text_embeddings)
+        # text_embeddings = torch.concat(text_embeddings_list, dim=-1)
 
 
-        if do_classifier_free_guidance:
-            negative_prompt_embeds_list = []
-            max_length = text_embeddings.shape[1]
-            for negative_prompt, tokenizer, text_encoder in zip(negative_prompts, tokenizers, text_encoders):
-                uncond_input = tokenizer(
-                    negative_prompt,
-                    padding="max_length",
-                    max_length=max_length,
-                    truncation=True,
-                    return_tensors="pt",
-                )
+        # if do_classifier_free_guidance:
+        #     negative_prompt_embeds_list = []
+        #     max_length = text_embeddings.shape[1]
+        #     for negative_prompt, tokenizer, text_encoder in zip(negative_prompts, tokenizers, text_encoders):
+        #         uncond_input = tokenizer(
+        #             negative_prompt,
+        #             padding="max_length",
+        #             max_length=max_length,
+        #             truncation=True,
+        #             return_tensors="pt",
+        #         )
 
-                negative_prompt_embeds = text_encoder(
-                    uncond_input.input_ids.to(shared.device),
-                )[0]
-                # # We are only ALWAYS interested in the pooled output of the final text encoder
-                # negative_pooled_prompt_embeds = negative_prompt_embeds[0]
-                # negative_prompt_embeds = negative_prompt_embeds.hidden_states[-2]
+        #         negative_prompt_embeds = text_encoder(
+        #             uncond_input.input_ids.to(shared.device),
+        #         )[0]
+        #         # # We are only ALWAYS interested in the pooled output of the final text encoder
+        #         # negative_pooled_prompt_embeds = negative_prompt_embeds[0]
+        #         # negative_prompt_embeds = negative_prompt_embeds.hidden_states[-2]
 
-                negative_prompt_embeds_list.append(negative_prompt_embeds)
+        #         negative_prompt_embeds_list.append(negative_prompt_embeds)
 
-            negative_prompt_embeds = torch.concat(negative_prompt_embeds_list, dim=-1)
+        #     negative_prompt_embeds = torch.concat(negative_prompt_embeds_list, dim=-1)
         
-        text_embeddings = text_embeddings.to(dtype=self.text_encoder.dtype, device=shared.device)
-        bs_embed, seq_len, _ = text_embeddings.shape
-        # duplicate text embeddings for each generation per prompt, using mps friendly method
-        text_embeddings = text_embeddings.repeat(1, self.n_iter, 1)
-        text_embeddings = text_embeddings.view(bs_embed * self.n_iter, seq_len, -1)
+        # text_embeddings = text_embeddings.to(dtype=self.text_encoder.dtype, device=shared.device)
+        # bs_embed, seq_len, _ = text_embeddings.shape
+        # # duplicate text embeddings for each generation per prompt, using mps friendly method
+        # text_embeddings = text_embeddings.repeat(1, self.n_iter, 1)
+        # text_embeddings = text_embeddings.view(bs_embed * self.n_iter, seq_len, -1)
 
-        if do_classifier_free_guidance:
-            seq_len = negative_prompt_embeds.shape[1]
-            negative_prompt_embeds = negative_prompt_embeds.to(dtype=self.text_encoder.dtype, device=shared.device)
-            negative_prompt_embeds = negative_prompt_embeds.repeat(1, self.n_iter, 1)
-            negative_prompt_embeds = negative_prompt_embeds.view(prompt_batch_size * self.n_iter, seq_len, -1)
-            text_embeddings = torch.cat([negative_prompt_embeds, text_embeddings])
+        # if do_classifier_free_guidance:
+        #     seq_len = negative_prompt_embeds.shape[1]
+        #     negative_prompt_embeds = negative_prompt_embeds.to(dtype=self.text_encoder.dtype, device=shared.device)
+        #     negative_prompt_embeds = negative_prompt_embeds.repeat(1, self.n_iter, 1)
+        #     negative_prompt_embeds = negative_prompt_embeds.view(prompt_batch_size * self.n_iter, seq_len, -1)
+        #     text_embeddings = torch.cat([negative_prompt_embeds, text_embeddings])
         
-        # prepare timesteps
-        self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config)
-        self.scheduler.set_timesteps(self.steps)
-        latents = latents * self.scheduler.init_noise_sigma
+        # # prepare timesteps
+        # self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config)
+        # self.scheduler.set_timesteps(self.steps)
+        # latents = latents * self.scheduler.init_noise_sigma
 
-        for t in tqdm(self.scheduler.timesteps):
-            # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
-            latent_model_input = torch.cat([latents] * 2)
-            # latent_model_input = latents
+        # for t in tqdm(self.scheduler.timesteps):
+        #     # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
+        #     latent_model_input = torch.cat([latents] * 2)
+        #     # latent_model_input = latents
 
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
+        #     latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
 
-            # predict the noise residual
-            with torch.no_grad():
-                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)
-                noise_pred = noise_pred.sample
+        #     # predict the noise residual
+        #     with torch.no_grad():
+        #         noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)
+        #         noise_pred = noise_pred.sample
 
-            # perform guidance
-            if do_classifier_free_guidance:
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
+        #     # perform guidance
+        #     if do_classifier_free_guidance:
+        #         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+        #         noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
 
-            # compute the previous noisy sample x_t -> x_t-1
-            latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-        # latents = 1 / 0.18215 * latents
-        # samples = copy.deepcopy(latents)
-        samples = latents
-        images = self.decode_latents(latents)
-        # 9. Run safety checker
-        # image, has_nsfw_concept = self.run_safety_checker(image, shared.device, prompt_embeds.dtype)
-        # 10. Convert to PIL
-        def numpy_to_pil(images):
-            """
-            Convert a numpy image or a batch of images to a PIL image.
-            """
-            if images.ndim == 3:
-                images = images[None, ...]
-            images = (images * 255).round().astype("uint8")
-            if images.shape[-1] == 1:
-                # special case for grayscale (single channel) images
-                pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
-            else:
-                pil_images = [Image.fromarray(image) for image in images]
-            return pil_images
-        # images = numpy_to_pil(images)
-        # images[0].save("test.png")
+        #     # compute the previous noisy sample x_t -> x_t-1
+        #     latents = self.scheduler.step(noise_pred, t, latents).prev_sample
+        # # latents = 1 / 0.18215 * latents
+        # # samples = copy.deepcopy(latents)
+        # samples = latents
+        # images = self.decode_latents(latents)
+        # # 9. Run safety checker
+        # # image, has_nsfw_concept = self.run_safety_checker(image, shared.device, prompt_embeds.dtype)
+        # # 10. Convert to PIL
+        # def numpy_to_pil(images):
+        #     """
+        #     Convert a numpy image or a batch of images to a PIL image.
+        #     """
+        #     if images.ndim == 3:
+        #         images = images[None, ...]
+        #     images = (images * 255).round().astype("uint8")
+        #     if images.shape[-1] == 1:
+        #         # special case for grayscale (single channel) images
+        #         pil_images = [Image.fromarray(image.squeeze(), mode="L") for image in images]
+        #     else:
+        #         pil_images = [Image.fromarray(image) for image in images]
+        #     return pil_images
+        # # images = numpy_to_pil(images)
+        # # images[0].save("test.png")
 
         if not self.enable_hr:
             return samples
