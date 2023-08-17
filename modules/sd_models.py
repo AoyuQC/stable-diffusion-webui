@@ -692,8 +692,9 @@ def load_pipeline(checkpoint_info=None):
     timer.record("calculate hash")
 
     shared.opts.data["sd_model_checkpoint"] = checkpoint_info.title
-    sd_pipeline = StableDiffusionPipeline.from_single_file(checkpoint_info, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+    sd_pipeline = StableDiffusionPipeline.from_single_file(checkpoint_info.filename, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
     sd_pipeline.to((devices.device))
+    sd_pipeline.enable_xformers_memory_efficient_attention()
 
     pipeline_name = str(type(sd_pipeline)).split('.')[-1][:-2]
 

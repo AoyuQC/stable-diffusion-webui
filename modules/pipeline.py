@@ -286,9 +286,7 @@ class StableDiffusionProcessing:
 
     @property
     def sd_pipeline(self):
-        return pipeline
-        #TODO: return original pipeline
-        # return shared.sd_pipeline
+        return shared.sd_pipeline
 
     def txt2img_image_conditioning(self, x, width=None, height=None):
         self.is_using_inpainting_conditioning = self.sd_model.model.conditioning_key in {'hybrid', 'concat'}
@@ -1585,12 +1583,12 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         self.mask = None
         self.nmask = None
         self.image_conditioning = None
-        self.tokenizer = pipeline.tokenizer
-        self.unet = pipeline.unet
-        self.vae = pipeline.vae
-        self.scheduler = pipeline.scheduler
-        self.text_encoder = pipeline.text_encoder
-        self.decode_latents = pipeline.decode_latents
+        self.tokenizer = self.sd_pipeline.tokenizer
+        self.unet = self.sd_pipeline.unet
+        self.vae = self.sd_pipeline.vae
+        self.scheduler = self.sd_pipeline.scheduler
+        self.text_encoder = self.sd_pipeline.text_encoder
+        self.decode_latents = self.sd_pipeline.decode_latents
         self.generator = torch.Generator(device=shared.device)
 
     def init(self, all_prompts, all_seeds, all_subseeds):
@@ -1732,93 +1730,209 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         return timesteps, num_inference_steps - t_start
 
     def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
-        x = create_random_tensors([opt_C, self.height // opt_f, self.width // opt_f], seeds=seeds, subseeds=subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w, p=self)
+        
+        # update sampler
+        sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
+
+        # common parameters for sd
+        prompt = self.prompt 
+        height = self.width
+        width = self.height
+        num_inference_steps = self.steps
+        guidance_scale = self.cfg_scale
+        negative_prompt = self.negative_prompt or ""
+        num_images_per_prompt = self.batch_size
+        eta = self.eta
+        generator = self.generator
+        prompt_embeds = self.prompt_embeds
+        negative_prompt_embeds = self.negative_prompt_embeds
+        output_type = self.output_type
+        callback = self.callback
+        callback_steps = self.callback_steps
+        cross_attention_kwargs = self.cross_attention_kwargs
+
+        # parameters for sdxl
+        prompt_2 = self.prompt_2 or self.prompt
+        negative_prompt_2 = self.negative_prompt_2 or self.negative_prompt
+        denoising_end = self.denoising_end
+        pooled_prompt_embeds = self.pooled_prompt_embeds
+        negative_pooled_prompt_embeds = self.negative_pooled_prompt_embeds
+        guidance_rescale = self.guidance_rescale
+        original_size = self.original_size
+        crops_coords_top_left = self.crops_coords_top_left
+        target_size = self.target_size
+        use_refiner = self.use_refiner
+
+        # parameters for refiner
+        strength = self.strength
+        denoising_start = self.denoising_start
+        aesthetic_score = self.aesthetic_score
+        negative_aesthetic_score = self.negative_aesthetic_score
+
+        noise = create_random_tensors([opt_C, self.height // opt_f, self.width // opt_f], seeds=seeds, subseeds=subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w, p=self)
 
         if self.initial_noise_multiplier != 1.0:
             self.extra_generation_params["Noise multiplier"] = self.initial_noise_multiplier
-            x *= self.initial_noise_multiplier
+            noise *= self.initial_noise_multiplier
+        
+
+        pipeline_name = self.pipeline_name
+        # default output: latents
+        if pipeline_name == 'StableDiffusionPipeline':
+            generator = generator.manual_seed(seed=seeds)
+            if self.image_mask is None:
+                images = sd_pipeline(
+                    prompt = prompt,
+                    image = self.init_latent,
+                    strength = self.denoising_strength,
+                    num_inference_steps = num_inference_steps,
+                    guidance_scale = guidance_scale,
+                    negative_prompt = negative_prompt,
+                    num_images_per_prompt= num_images_per_prompt,
+                    eta = eta,
+                    generator = generator,
+                    prompt_embeds = prompt_embeds,
+                    negative_prompt_embeds= negative_prompt_embeds,
+                    output_type = output_type,
+                    return_dict = True,
+                    callback = callback,
+                    callback_steps = callback_steps,
+                    cross_attention_kwargs = cross_attention_kwargs).images[0]
+            else:
+                generator = generator.manual_seed(seed=seeds)
+                images = sd_pipeline(
+                    prompt = prompt,
+                    image = self.init_images,
+                    mask_image = self.image_mask,
+                    height = height,
+                    width = width,
+                    strength = self.denoising_strength,
+                    num_inference_steps = num_inference_steps,
+                    guidance_scale = guidance_scale,
+                    negative_prompt = negative_prompt,
+                    num_images_per_prompt= num_images_per_prompt,
+                    eta = eta,
+                    generator = generator,
+                    latents = None,
+                    prompt_embeds = prompt_embeds,
+                    negative_prompt_embeds= negative_prompt_embeds,
+                    output_type = output_type,
+                    return_dict = True,
+                    callback = callback,
+                    callback_steps = callback_steps,
+                    cross_attention_kwargs = cross_attention_kwargs).images[0]
+        elif pipeline_name == 'StableDiffusionXLPipeline':
+            ### image = self.init_latent + noise -> need set denoising_start is not none
+            images = sd_pipeline(
+                prompt = prompt,
+                prompt_2 = prompt_2,
+                image = self.init_latent,
+                strength = self.denoising_strength,
+                num_inference_steps = num_inference_steps,
+                denoising_start = denoising_start,
+                denoising_end = denoising_end,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                negative_prompt_2 = negative_prompt_2,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = None,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                pooled_prompt_embeds = pooled_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                guidance_rescale = guidance_rescale,
+                original_size = original_size,
+                crops_coords_top_left = crops_coords_top_left,
+                target_size = target_size,
+                aesthetic_score = aesthetic_score,
+                negative_aesthetic_score = negative_aesthetic_score).images[0],
+            
+        samples = images[None,:,:,:]
 
         #samples = self.sampler.sample_img2img(self, self.init_latent, x, conditioning, unconditional_conditioning, image_conditioning=self.image_conditioning)
 
-        # diffuser pipeline
-        noise = x 
+        # # diffuser pipeline
+        # noise = x 
         
-        # text embedding
-        text_input = self.tokenizer(
-            self.prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
-        )
-        with torch.no_grad():
-            text_embeddings = self.text_encoder(text_input.input_ids.to(shared.device))[0]
+        # # text embedding
+        # text_input = self.tokenizer(
+        #     self.prompt, padding="max_length", max_length=self.tokenizer.model_max_length, truncation=True, return_tensors="pt"
+        # )
+        # with torch.no_grad():
+        #     text_embeddings = self.text_encoder(text_input.input_ids.to(shared.device))[0]
         
-        do_classifier_free_guidance = self.cfg_scale > 1.0
-        # get unconditional embeddings for classifier free guidance
-        if do_classifier_free_guidance:
-            max_length = text_input.input_ids.shape[-1]
-            uncond_input = self.tokenizer(
-                [""] * self.batch_size, padding="max_length", max_length=max_length, return_tensors="pt"
-            )
-            uncond_embeddings = self.text_encoder(uncond_input.input_ids.to(shared.device))[0]
+        # do_classifier_free_guidance = self.cfg_scale > 1.0
+        # # get unconditional embeddings for classifier free guidance
+        # if do_classifier_free_guidance:
+        #     max_length = text_input.input_ids.shape[-1]
+        #     uncond_input = self.tokenizer(
+        #         [""] * self.batch_size, padding="max_length", max_length=max_length, return_tensors="pt"
+        #     )
+        #     uncond_embeddings = self.text_encoder(uncond_input.input_ids.to(shared.device))[0]
 
-            # For classifier free guidance, we need to do two forward passes.
-            # Here we concatenate the unconditional and text embeddings into a single batch
-            # to avoid doing two forward passes
-            text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
+        #     # For classifier free guidance, we need to do two forward passes.
+        #     # Here we concatenate the unconditional and text embeddings into a single batch
+        #     # to avoid doing two forward passes
+        #     text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
 
 
-        # set timesteps
-        self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config)
-        self.scheduler.set_timesteps(self.steps, device=shared.device)
-        timesteps, num_inference_steps = self.get_timesteps(self.steps, self.denoising_strength, shared.device)
-        latent_timestep = timesteps[:1].repeat(self.batch_size * self.n_iter)
+        # # set timesteps
+        # self.scheduler = EulerAncestralDiscreteScheduler.from_config(self.scheduler.config)
+        # self.scheduler.set_timesteps(self.steps, device=shared.device)
+        # timesteps, num_inference_steps = self.get_timesteps(self.steps, self.denoising_strength, shared.device)
+        # latent_timestep = timesteps[:1].repeat(self.batch_size * self.n_iter)
         
-        init_latents = self.scheduler.add_noise(self.init_latent, noise, latent_timestep)
-        latents = init_latents
+        # init_latents = self.scheduler.add_noise(self.init_latent, noise, latent_timestep)
+        # latents = init_latents
 
-        num_channels_unet = self.unet.config.in_channels
+        # num_channels_unet = self.unet.config.in_channels
         
-        for i, t in tqdm(enumerate(timesteps)):
-            # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
-            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-            #latent_model_input = torch.cat([latents] * 2)
+        # for i, t in tqdm(enumerate(timesteps)):
+        #     # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
+        #     latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+        #     #latent_model_input = torch.cat([latents] * 2)
 
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
+        #     latent_model_input = self.scheduler.scale_model_input(latent_model_input, timestep=t)
 
-            if self.image_mask is not None and num_channels_unet == 9:
-                mask_image_conditioning = torch.cat([self.image_conditioning] * 2) if do_classifier_free_guidance else self.image_conditioning
-                latent_model_input = torch.cat([latent_model_input, mask_image_conditioning], dim=1)
+        #     if self.image_mask is not None and num_channels_unet == 9:
+        #         mask_image_conditioning = torch.cat([self.image_conditioning] * 2) if do_classifier_free_guidance else self.image_conditioning
+        #         latent_model_input = torch.cat([latent_model_input, mask_image_conditioning], dim=1)
 
 
-            # predict the noise residual
-            with torch.no_grad():
-                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)[0]
+        #     # predict the noise residual
+        #     with torch.no_grad():
+        #         noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)[0]
 
-            # perform guidance
-            if do_classifier_free_guidance:
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
-            #noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-            #noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
+        #     # perform guidance
+        #     if do_classifier_free_guidance:
+        #         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+        #         noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
+        #     #noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+        #     #noise_pred = noise_pred_uncond + self.cfg_scale * (noise_pred_text - noise_pred_uncond)
 
-            # compute the previous noisy sample x_t -> x_t-1
-            latents = self.scheduler.step(noise_pred, t, latents)[0]
+        #     # compute the previous noisy sample x_t -> x_t-1
+        #     latents = self.scheduler.step(noise_pred, t, latents)[0]
 
-            if self.image_mask is not None and num_channels_unet == 4:
-                    init_latents_proper = self.init_latent
-                    init_mask = self.mask
+        #     if self.image_mask is not None and num_channels_unet == 4:
+        #             init_latents_proper = self.init_latent
+        #             init_mask = self.mask
 
-                    if i < len(timesteps) - 1:
-                        noise_timestep = timesteps[i + 1]
-                        init_latents_proper = self.scheduler.add_noise(
-                            init_latents_proper, noise, torch.tensor([noise_timestep])
-                        )
+        #             if i < len(timesteps) - 1:
+        #                 noise_timestep = timesteps[i + 1]
+        #                 init_latents_proper = self.scheduler.add_noise(
+        #                     init_latents_proper, noise, torch.tensor([noise_timestep])
+        #                 )
 
-                    latents = (1 - init_mask) * init_latents_proper + init_mask * latents
+        #             latents = (1 - init_mask) * init_latents_proper + init_mask * latents
 
-        
-        samples = latents
-
-        if self.mask is not None:
-            samples = samples * self.nmask + self.init_latent * self.mask
+        # samples = latents
         
         ##### debug for show the results
         # images = pipeline.decode_latents(latents)
