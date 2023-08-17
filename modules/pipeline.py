@@ -37,9 +37,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
 opt_C = 4
 opt_f = 8
-#from diffusers import StableDiffusionPipeline
-#pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
-#pipeline.to("cuda")
+# from diffusers import StableDiffusionPipeline
+# pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
+# pipeline.to("cuda")
 
 def setup_color_correction(image):
     logging.info("Calibrating color correction.")
@@ -286,9 +286,8 @@ class StableDiffusionProcessing:
 
     @property
     def sd_pipeline(self):
-        return pipeline
-        #TODO: return original pipeline
-        # return shared.sd_pipeline
+        # return pipeline
+        return shared.sd_pipeline
 
     def txt2img_image_conditioning(self, x, width=None, height=None):
         self.is_using_inpainting_conditioning = self.sd_model.model.conditioning_key in {'hybrid', 'concat'}
@@ -1164,7 +1163,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         num_inference_steps = self.steps
         guidance_scale = self.cfg_scale
         negative_prompt = self.negative_prompt or ""
-        num_images_per_prompt = self.n_iter
+        num_images_per_prompt = self.batch_size
         eta = self.eta
         generator = self.generator
         latents = create_random_tensors([opt_C, self.height // opt_f, self.width // opt_f], seeds=seeds, subseeds=subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w, p=self)
