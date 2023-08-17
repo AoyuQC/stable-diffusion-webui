@@ -1163,7 +1163,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         num_inference_steps = self.steps
         guidance_scale = self.cfg_scale
         negative_prompt = self.negative_prompt or ""
-        num_images_per_prompt = self.batch_size
+        num_images_per_prompt = self.n_iter
         eta = self.eta
         generator = self.generator
         latents = create_random_tensors([opt_C, self.height // opt_f, self.width // opt_f], seeds=seeds, subseeds=subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w, p=self)
@@ -1212,7 +1212,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 return_dict = True,
                 callback = callback,
                 callback_steps = callback_steps,
-                cross_attention_kwargs = cross_attention_kwargs).images[0]
+                cross_attention_kwargs = cross_attention_kwargs).images
         elif pipeline_name == 'StableDiffusionXLPipeline':
             images = sd_pipeline(
                 prompt = prompt,
@@ -1240,7 +1240,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 guidance_rescale = guidance_rescale,
                 original_size = original_size,
                 crops_coords_top_left = crops_coords_top_left,
-                target_size = target_size).images[0]
+                target_size = target_size).images
             if use_refiner:
                 images = self.refiner_pipeline(
                     prompt = prompt,
@@ -1270,9 +1270,9 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                     crops_coords_top_left = crops_coords_top_left,
                     target_size = target_size,
                     aesthetic_score = aesthetic_score,
-                    negative_aesthetic_score = negative_aesthetic_score).images[0]
+                    negative_aesthetic_score = negative_aesthetic_score).images
 
-        samples = images[None,:,:,:]
+        samples = images
         # do_classifier_free_guidance = self.cfg_scale > 1.0
 
         # if self.prompt is not None and isinstance(self.prompt, str):
