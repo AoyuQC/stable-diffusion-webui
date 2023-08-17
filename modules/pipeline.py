@@ -286,10 +286,6 @@ class StableDiffusionProcessing:
 
     @property
     def sd_pipeline(self):
-<<<<<<< HEAD
-=======
-        # return pipeline
->>>>>>> 2eff21d78315039e44a226fa743bd0146b2c81c1
         return shared.sd_pipeline
 
     def txt2img_image_conditioning(self, x, width=None, height=None):
@@ -1827,36 +1823,73 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
                     cross_attention_kwargs = cross_attention_kwargs).images[0]
         elif pipeline_name == 'StableDiffusionXLPipeline':
             ### image = self.init_latent + noise -> need set denoising_start is not none
-            images = sd_pipeline(
-                prompt = prompt,
-                prompt_2 = prompt_2,
-                image = self.init_latent,
-                strength = self.denoising_strength,
-                num_inference_steps = num_inference_steps,
-                denoising_start = denoising_start,
-                denoising_end = denoising_end,
-                guidance_scale = guidance_scale,
-                negative_prompt = negative_prompt,
-                negative_prompt_2 = negative_prompt_2,
-                num_images_per_prompt = num_images_per_prompt,
-                eta = eta,
-                generator = generator,
-                latents = None,
-                prompt_embeds = prompt_embeds,
-                negative_prompt_embeds = negative_prompt_embeds,
-                pooled_prompt_embeds = pooled_prompt_embeds,
-                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
-                output_type = output_type,
-                return_dict = True,
-                callback = callback,
-                callback_steps = callback_steps,
-                cross_attention_kwargs = cross_attention_kwargs,
-                guidance_rescale = guidance_rescale,
-                original_size = original_size,
-                crops_coords_top_left = crops_coords_top_left,
-                target_size = target_size,
-                aesthetic_score = aesthetic_score,
-                negative_aesthetic_score = negative_aesthetic_score).images[0],
+            generator = generator.manual_seed(seed=seeds)
+            if self.image_mask is None:
+                images = sd_pipeline(
+                    prompt = prompt,
+                    prompt_2 = prompt_2,
+                    image = self.init_latent,
+                    strength = self.denoising_strength,
+                    num_inference_steps = num_inference_steps,
+                    denoising_start = denoising_start,
+                    denoising_end = denoising_end,
+                    guidance_scale = guidance_scale,
+                    negative_prompt = negative_prompt,
+                    negative_prompt_2 = negative_prompt_2,
+                    num_images_per_prompt = num_images_per_prompt,
+                    eta = eta,
+                    generator = generator,
+                    latents = None,
+                    prompt_embeds = prompt_embeds,
+                    negative_prompt_embeds = negative_prompt_embeds,
+                    pooled_prompt_embeds = pooled_prompt_embeds,
+                    negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                    output_type = output_type,
+                    return_dict = True,
+                    callback = callback,
+                    callback_steps = callback_steps,
+                    cross_attention_kwargs = cross_attention_kwargs,
+                    guidance_rescale = guidance_rescale,
+                    original_size = original_size,
+                    crops_coords_top_left = crops_coords_top_left,
+                    target_size = target_size,
+                    aesthetic_score = aesthetic_score,
+                    negative_aesthetic_score = negative_aesthetic_score).images[0],
+            else:
+                images = sd_pipeline(
+                    prompt = prompt,
+                    prompt_2 = prompt_2,
+                    image = self.init_latent,
+                    mask_image = self.image_mask,
+                    height = height,
+                    width = width,
+                    strength = self.denoising_strength,
+                    num_inference_steps = num_inference_steps,
+                    denoising_start = denoising_start,
+                    denoising_end = denoising_end,
+                    guidance_scale = guidance_scale,
+                    negative_prompt = negative_prompt,
+                    negative_prompt_2 = negative_prompt_2,
+                    num_images_per_prompt = num_images_per_prompt,
+                    eta = eta,
+                    generator = generator,
+                    latents = None,
+                    prompt_embeds = prompt_embeds,
+                    negative_prompt_embeds = negative_prompt_embeds,
+                    pooled_prompt_embeds = pooled_prompt_embeds,
+                    negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                    output_type = output_type,
+                    return_dict = True,
+                    callback = callback,
+                    callback_steps = callback_steps,
+                    cross_attention_kwargs = cross_attention_kwargs,
+                    guidance_rescale = guidance_rescale,
+                    original_size = original_size,
+                    crops_coords_top_left = crops_coords_top_left,
+                    target_size = target_size,
+                    aesthetic_score = aesthetic_score,
+                    negative_aesthetic_score = negative_aesthetic_score).images[0],
+
             
         samples = images[None,:,:,:]
 
