@@ -19,7 +19,7 @@ aigc_params = json.load(f)
 
 payload={}
 payload['task'] = 'txt2img'
-payload['txt2img_payload'] = {"denoising_strength": 0.75, "prompt": "a flower", "styles": [], "seed": 12345, "subseed": 23456, "subseed_strength": 0.0, "seed_resize_from_h": 0, "seed_resize_from_w": 0, "sampler_name": "Euler a", "batch_size": 1, "n_iter": 1, "steps": 20, "cfg_scale": 7.0, "width": 512, "height": 512, "negative_prompt": "", "eta": 1, "s_churn": 0, "s_tmax": 1, "s_tmin": 0, "s_noise": 1, "override_settings": {}, "script_name": "", "script_args": []}
+payload['txt2img_payload'] = {"denoising_strength": 0.75, "prompt": "a flower", "styles": [], "seed": 12345, "subseed": 23456, "subseed_strength": 0.0, "seed_resize_from_h": 0, "seed_resize_from_w": 0, "sampler_name": "Euler a", "batch_size": 1, "n_iter": 1, "steps": 20, "cfg_scale": 7.0, "width": 1024, "height": 1024, "negative_prompt": "", "eta": 1, "s_churn": 0, "s_tmax": 1, "s_tmin": 0, "s_noise": 1, "override_settings": {}, "script_name": "", "script_args": []}
 #payload['task'] = 'img2img'
 #payload['img2img_payload'] = aigc_params['img2img_payload']
 
