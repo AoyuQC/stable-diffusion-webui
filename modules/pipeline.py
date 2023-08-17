@@ -37,9 +37,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
 opt_C = 4
 opt_f = 8
-#from diffusers import StableDiffusionPipeline
-#pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
-#pipeline.to("cuda")
+# from diffusers import StableDiffusionPipeline
+# pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
+# pipeline.to("cuda")
 
 def setup_color_correction(image):
     logging.info("Calibrating color correction.")
@@ -286,6 +286,10 @@ class StableDiffusionProcessing:
 
     @property
     def sd_pipeline(self):
+<<<<<<< HEAD
+=======
+        # return pipeline
+>>>>>>> 2eff21d78315039e44a226fa743bd0146b2c81c1
         return shared.sd_pipeline
 
     def txt2img_image_conditioning(self, x, width=None, height=None):
@@ -1211,7 +1215,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 return_dict = True,
                 callback = callback,
                 callback_steps = callback_steps,
-                cross_attention_kwargs = cross_attention_kwargs).images[0]
+                cross_attention_kwargs = cross_attention_kwargs).images
         elif pipeline_name == 'StableDiffusionXLPipeline':
             images = sd_pipeline(
                 prompt = prompt,
@@ -1239,7 +1243,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 guidance_rescale = guidance_rescale,
                 original_size = original_size,
                 crops_coords_top_left = crops_coords_top_left,
-                target_size = target_size).images[0]
+                target_size = target_size).images
             if use_refiner:
                 images = self.refiner_pipeline(
                     prompt = prompt,
@@ -1269,9 +1273,9 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                     crops_coords_top_left = crops_coords_top_left,
                     target_size = target_size,
                     aesthetic_score = aesthetic_score,
-                    negative_aesthetic_score = negative_aesthetic_score).images[0]
+                    negative_aesthetic_score = negative_aesthetic_score).images
 
-        samples = images[None,:,:,:]
+        samples = images
         # do_classifier_free_guidance = self.cfg_scale > 1.0
 
         # if self.prompt is not None and isinstance(self.prompt, str):
