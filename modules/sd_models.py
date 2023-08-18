@@ -437,7 +437,8 @@ class SdModelData:
                     return self.sd_model
 
                 try:
-                    load_model()
+                    print("disable for debug")
+                    # load_model()
                 except Exception as e:
                     errors.display(e, "loading stable diffusion model", full_traceback=True)
                     print("", file=sys.stderr)
@@ -448,7 +449,6 @@ class SdModelData:
 
     def set_sd_model(self, v):
         self.sd_model = v
-
 
 model_data = SdModelData()
 
@@ -672,8 +672,8 @@ class DiffuserPipelineData:
     def set_sd_pipeline(self, v):
         self.sd_pipeline = v
 
-
-pipeline_data = DiffuserPipelineData()
+# TODO: distable to debug diffuser pipeline
+# pipeline_data = DiffuserPipelineData()
 
 def load_pipeline(checkpoint_info=None):
     checkpoint_info = checkpoint_info or select_checkpoint()

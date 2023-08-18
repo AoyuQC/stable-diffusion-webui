@@ -37,9 +37,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
 opt_C = 4
 opt_f = 8
-# from diffusers import StableDiffusionPipeline
+from diffusers import DiffusionPipeline, StableDiffusionXLPipeline, StableDiffusionPipeline
+import diffusers as du
 # pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
-# pipeline.to("cuda")
+# test_pipeline = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+# test_pipeline.to("cuda")
 
 def setup_color_correction(image):
     logging.info("Calibrating color correction.")
@@ -176,6 +178,9 @@ class StableDiffusionProcessing:
         aesthetic_score: float = 6.0,
         negative_aesthetic_score: float = 2.5,
     ):
+        self.test_pipeline = StableDiffusionXLPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", force_download=True, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+        # self.test_pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
+        self.test_pipeline.to("cuda")
         if sampler_index is not None:
             print("sampler_index argument for StableDiffusionProcessing does not do anything; use sampler_name", file=sys.stderr)
 
@@ -286,7 +291,8 @@ class StableDiffusionProcessing:
 
     @property
     def sd_pipeline(self):
-        return shared.sd_pipeline
+        # return shared.sd_pipeline
+        return self.test_pipeline
 
     def txt2img_image_conditioning(self, x, width=None, height=None):
         self.is_using_inpainting_conditioning = self.sd_model.model.conditioning_key in {'hybrid', 'concat'}
@@ -485,7 +491,8 @@ class Processed:
         self.batch_size = p.batch_size
         self.restore_faces = p.restore_faces
         self.face_restoration_model = opts.face_restoration_model if p.restore_faces else None
-        self.sd_model_hash = shared.sd_model.sd_model_hash
+        # self.sd_model_hash = shared.sd_model.sd_model_hash
+        self.sd_model_hash = None
         self.seed_resize_from_w = p.seed_resize_from_w
         self.seed_resize_from_h = p.seed_resize_from_h
         self.denoising_strength = getattr(p, 'denoising_strength', None)
@@ -718,8 +725,11 @@ def create_infotext(p, all_prompts, all_seeds, all_subseeds, comments=None, iter
         "Seed": all_seeds[index],
         "Face restoration": (opts.face_restoration_model if p.restore_faces else None),
         "Size": f"{p.width}x{p.height}",
-        "Model hash": getattr(p, 'sd_model_hash', None if not opts.add_model_hash_to_info or not shared.sd_model.sd_model_hash else shared.sd_model.sd_model_hash),
-        "Model": (None if not opts.add_model_name_to_info else shared.sd_model.sd_checkpoint_info.name_for_extra),
+        # "Model hash": getattr(p, 'sd_model_hash', None if not opts.add_model_hash_to_info or not shared.sd_model.sd_model_hash else shared.sd_model.sd_model_hash),
+        "Model hash": None,
+        # "Model": (None if not opts.add_model_name_to_info else shared.sd_model.sd_checkpoint_info.name_for_extra),
+        "Model": None,
+        # (None if not opts.add_model_name_to_info else shared.sd_model.sd_checkpoint_info.name_for_extra),
         "Variation seed": (None if p.subseed_strength == 0 else all_subseeds[index]),
         "Variation seed strength": (None if p.subseed_strength == 0 else p.subseed_strength),
         "Seed resize from": (None if p.seed_resize_from_w <= 0 or p.seed_resize_from_h <= 0 else f"{p.seed_resize_from_w}x{p.seed_resize_from_h}"),
@@ -752,21 +762,21 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
     stored_opts = {k: opts.data[k] for k in p.override_settings.keys()}
 
     try:
-        # if no checkpoint override or the override checkpoint can't be found, remove override entry and load opts checkpoint
-        if sd_models.checkpoint_aliases.get(p.override_settings.get('sd_model_checkpoint')) is None:
-            p.override_settings.pop('sd_model_checkpoint', None)
-            sd_models.reload_model_weights()
+        # # if no checkpoint override or the override checkpoint can't be found, remove override entry and load opts checkpoint
+        # if sd_models.checkpoint_aliases.get(p.override_settings.get('sd_model_checkpoint')) is None:
+        #     p.override_settings.pop('sd_model_checkpoint', None)
+        #     sd_models.reload_model_weights()
 
-        for k, v in p.override_settings.items():
-            setattr(opts, k, v)
+        # for k, v in p.override_settings.items():
+        #     setattr(opts, k, v)
 
-            if k == 'sd_model_checkpoint':
-                sd_models.reload_model_weights()
+        #     if k == 'sd_model_checkpoint':
+        #         sd_models.reload_model_weights()
 
-            if k == 'sd_vae':
-                sd_vae.reload_vae_weights()
+        #     if k == 'sd_vae':
+        #         sd_vae.reload_vae_weights()
 
-        sd_models.apply_token_merging(p.sd_model, p.get_token_merging_ratio())
+        # sd_models.apply_token_merging(p.sd_model, p.get_token_merging_ratio())
 
         res = process_images_inner(p)
 
@@ -817,8 +827,8 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     def infotext(iteration=0, position_in_batch=0, use_main_prompt=False):
         return create_infotext(p, p.all_prompts, p.all_seeds, p.all_subseeds, comments, iteration, position_in_batch, use_main_prompt)
 
-    if os.path.exists(cmd_opts.embeddings_dir) and not p.do_not_reload_embeddings:
-        model_hijack.embedding_db.load_textual_inversion_embeddings()
+    # if os.path.exists(cmd_opts.embeddings_dir) and not p.do_not_reload_embeddings:
+    #     model_hijack.embedding_db.load_textual_inversion_embeddings()
 
     if p.scripts is not None:
         p.scripts.process(p)
@@ -826,7 +836,8 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     infotexts = []
     output_images = []
 
-    with torch.no_grad(), p.sd_model.ema_scope():
+    # with torch.no_grad(), p.sd_model.ema_scope():
+    with torch.no_grad():
         with devices.autocast():
             p.init(p.all_prompts, p.all_seeds, p.all_subseeds)
 
@@ -834,7 +845,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
             if shared.opts.live_previews_enable and opts.show_progress_type == "Approx NN":
                 sd_vae_approx.model()
 
-            sd_unet.apply_unet()
+            # sd_unet.apply_unet()
 
         if state.job_count == -1:
             state.job_count = p.n_iter
@@ -877,12 +888,12 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                     processed = Processed(p, [], p.seed, "")
                     file.write(processed.infotext(p, 0))
 
-            p.setup_conds()
+            # p.setup_conds()
 
-            for comment in model_hijack.comments:
-                comments[comment] = 1
+            # for comment in model_hijack.comments:
+            #     comments[comment] = 1
 
-            p.extra_generation_params.update(model_hijack.extra_generation_params)
+            # p.extra_generation_params.update(model_hijack.extra_generation_params)
 
             if p.n_iter > 1:
                 shared.state.job = f"Batch {n+1} out of {p.n_iter}"
@@ -1148,7 +1159,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
         # update sampler
-        sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
+        # sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
+        sd_pipeline = self.sd_pipeline
 
         latent_scale_mode = shared.latent_upscale_modes.get(self.hr_upscaler, None) if self.hr_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
         if self.enable_hr and latent_scale_mode is None:
@@ -1191,55 +1203,62 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         aesthetic_score = self.aesthetic_score
         negative_aesthetic_score = self.negative_aesthetic_score
 
-        pipeline_name = self.pipeline_name
+        # pipeline_name = sd_pipeline.pipeline_name
+        pipeline_name = 'StableDiffusionXLPipeline'
+        # pipeline_name = 'StableDiffusionPipeline'
         # default output: latents
         if pipeline_name == 'StableDiffusionPipeline':
             images = sd_pipeline(
-                prompt = prompt,
-                height = height,
-                width = width,
-                num_inference_steps = num_inference_steps,
-                guidance_scale = guidance_scale,
-                negative_prompt = negative_prompt,
-                num_images_per_prompt= num_images_per_prompt,
-                eta = eta,
-                generator = generator,
-                latents = latents,
-                prompt_embeds = prompt_embeds,
-                negative_prompt_embeds= negative_prompt_embeds,
-                output_type = output_type,
-                return_dict = True,
-                callback = callback,
-                callback_steps = callback_steps,
-                cross_attention_kwargs = cross_attention_kwargs).images
+                prompt = prompt).images
+            # images = sd_pipeline(
+            #     prompt = prompt,
+            #     height = height,
+            #     width = width,
+            #     num_inference_steps = num_inference_steps,
+            #     guidance_scale = guidance_scale,
+            #     negative_prompt = negative_prompt,
+            #     num_images_per_prompt= num_images_per_prompt,
+            #     eta = eta,
+            #     generator = generator,
+            #     latents = latents,
+            #     prompt_embeds = prompt_embeds,
+            #     negative_prompt_embeds= negative_prompt_embeds,
+            #     output_type = output_type,
+            #     return_dict = True,
+            #     callback = callback,
+            #     callback_steps = callback_steps,
+            #     cross_attention_kwargs = cross_attention_kwargs).images
         elif pipeline_name == 'StableDiffusionXLPipeline':
             images = sd_pipeline(
-                prompt = prompt,
-                prompt_2 = prompt_2,
-                height = height,
-                width = width,
-                num_inference_steps = num_inference_steps,
-                denoising_end = denoising_end,
-                guidance_scale = guidance_scale,
-                negative_prompt = negative_prompt,
-                negative_prompt_2 = negative_prompt_2,
-                num_images_per_prompt = num_images_per_prompt,
-                eta = eta,
-                generator = generator,
-                latents = latents,
-                prompt_embeds = prompt_embeds,
-                negative_prompt_embeds = negative_prompt_embeds,
-                pooled_prompt_embeds = pooled_prompt_embeds,
-                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
-                output_type = output_type,
-                return_dict = True,
-                callback = callback,
-                callback_steps = callback_steps,
-                cross_attention_kwargs = cross_attention_kwargs,
-                guidance_rescale = guidance_rescale,
-                original_size = original_size,
-                crops_coords_top_left = crops_coords_top_left,
-                target_size = target_size).images
+                prompt = prompt).images
+                # output_type = output_type).images
+            # images = sd_pipeline(
+            #     prompt = prompt,
+            #     prompt_2 = prompt_2,
+            #     height = height,
+            #     width = width,
+            #     num_inference_steps = num_inference_steps,
+            #     denoising_end = denoising_end,
+            #     guidance_scale = guidance_scale,
+            #     negative_prompt = negative_prompt,
+            #     negative_prompt_2 = negative_prompt_2,
+            #     num_images_per_prompt = num_images_per_prompt,
+            #     eta = eta,
+            #     generator = generator,
+            #     # latents = latents,
+            #     prompt_embeds = prompt_embeds,
+            #     negative_prompt_embeds = negative_prompt_embeds,
+            #     pooled_prompt_embeds = pooled_prompt_embeds,
+            #     negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+            #     output_type = output_type,
+            #     return_dict = True,
+            #     callback = callback,
+            #     callback_steps = callback_steps,
+            #     cross_attention_kwargs = cross_attention_kwargs,
+            #     guidance_rescale = guidance_rescale,
+            #     original_size = original_size,
+            #     crops_coords_top_left = crops_coords_top_left,
+            #     target_size = target_size).images
             if use_refiner:
                 images = self.refiner_pipeline(
                     prompt = prompt,
@@ -1270,6 +1289,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                     target_size = target_size,
                     aesthetic_score = aesthetic_score,
                     negative_aesthetic_score = negative_aesthetic_score).images
+                
+            # images = images.to(torch.float32)
 
         samples = images
         # do_classifier_free_guidance = self.cfg_scale > 1.0
