@@ -19,6 +19,7 @@ from modules.sd_hijack_inpainting import do_inpainting_hijack
 from modules.timer import Timer
 import tomesd
 from diffusers import StableDiffusionPipeline
+from diffusers.models import AutoencoderKL
 
 model_dir = "Stable-diffusion"
 model_path = os.path.abspath(os.path.join(paths.models_path, model_dir))
@@ -437,8 +438,7 @@ class SdModelData:
                     return self.sd_model
 
                 try:
-                    print("disable for debug")
-                    # load_model()
+                    load_model()
                 except Exception as e:
                     errors.display(e, "loading stable diffusion model", full_traceback=True)
                     print("", file=sys.stderr)
@@ -672,8 +672,7 @@ class DiffuserPipelineData:
     def set_sd_pipeline(self, v):
         self.sd_pipeline = v
 
-# TODO: distable to debug diffuser pipeline
-# pipeline_data = DiffuserPipelineData()
+pipeline_data = DiffuserPipelineData()
 
 def load_pipeline(checkpoint_info=None):
     checkpoint_info = checkpoint_info or select_checkpoint()

@@ -178,9 +178,9 @@ class StableDiffusionProcessing:
         aesthetic_score: float = 6.0,
         negative_aesthetic_score: float = 2.5,
     ):
-        self.test_pipeline = StableDiffusionXLPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", force_download=True, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
-        # self.test_pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
-        self.test_pipeline.to("cuda")
+        # self.test_pipeline = StableDiffusionXLPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", force_download=True, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+        # # self.test_pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
+        # self.test_pipeline.to("cuda")
         if sampler_index is not None:
             print("sampler_index argument for StableDiffusionProcessing does not do anything; use sampler_name", file=sys.stderr)
 
@@ -291,8 +291,8 @@ class StableDiffusionProcessing:
 
     @property
     def sd_pipeline(self):
-        # return shared.sd_pipeline
-        return self.test_pipeline
+        return shared.sd_pipeline
+        # return self.test_pipeline
 
     def txt2img_image_conditioning(self, x, width=None, height=None):
         self.is_using_inpainting_conditioning = self.sd_model.model.conditioning_key in {'hybrid', 'concat'}
@@ -779,6 +779,10 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
         # sd_models.apply_token_merging(p.sd_model, p.get_token_merging_ratio())
 
         res = process_images_inner(p)
+        # pipe = StableDiffusionXLPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", force_download=True, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+        # pipe.to("cuda")
+        # prompt = "An astronaut riding a green horse"
+        # images = pipe(prompt=prompt).images[0]
 
     finally:
         sd_models.apply_token_merging(p.sd_model, 0)
@@ -827,8 +831,8 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     def infotext(iteration=0, position_in_batch=0, use_main_prompt=False):
         return create_infotext(p, p.all_prompts, p.all_seeds, p.all_subseeds, comments, iteration, position_in_batch, use_main_prompt)
 
-    # if os.path.exists(cmd_opts.embeddings_dir) and not p.do_not_reload_embeddings:
-    #     model_hijack.embedding_db.load_textual_inversion_embeddings()
+    if os.path.exists(cmd_opts.embeddings_dir) and not p.do_not_reload_embeddings:
+        model_hijack.embedding_db.load_textual_inversion_embeddings()
 
     if p.scripts is not None:
         p.scripts.process(p)
@@ -836,8 +840,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     infotexts = []
     output_images = []
 
-    # with torch.no_grad(), p.sd_model.ema_scope():
-    with torch.no_grad():
+    with torch.no_grad(), p.sd_model.ema_scope():
         with devices.autocast():
             p.init(p.all_prompts, p.all_seeds, p.all_subseeds)
 
@@ -845,7 +848,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
             if shared.opts.live_previews_enable and opts.show_progress_type == "Approx NN":
                 sd_vae_approx.model()
 
-            # sd_unet.apply_unet()
+            sd_unet.apply_unet()
 
         if state.job_count == -1:
             state.job_count = p.n_iter
@@ -888,22 +891,29 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                     processed = Processed(p, [], p.seed, "")
                     file.write(processed.infotext(p, 0))
 
-            # p.setup_conds()
+            p.setup_conds()
 
-            # for comment in model_hijack.comments:
-            #     comments[comment] = 1
+            for comment in model_hijack.comments:
+                comments[comment] = 1
 
-            # p.extra_generation_params.update(model_hijack.extra_generation_params)
+            p.extra_generation_params.update(model_hijack.extra_generation_params)
 
             if p.n_iter > 1:
                 shared.state.job = f"Batch {n+1} out of {p.n_iter}"
 
-            with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
-                samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
-                latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
-                image = p.sd_pipeline.vae.decode(latents).sample
-                image = (image / 2 + 0.5).clamp(0, 1)
-                x_samples_ddim = image
+            # with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
+    #             samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
+    #             latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
+    #             image = p.sd_pipeline.vae.decode(latents).sample
+    #             image = (image / 2 + 0.5).clamp(0, 1)
+    #             x_samples_ddim = image
+            # with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
+            # with torch.autocast("cuda"):
+            samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
+            latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
+            image = p.sd_pipeline.vae.decode(latents).sample
+            image = (image / 2 + 0.5).clamp(0, 1)
+            x_samples_ddim = image
 
             # x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
             # x_samples_ddim = torch.stack(x_samples_ddim).float()
@@ -1002,6 +1012,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
         extra_networks.deactivate(p, p.extra_network_data)
 
     devices.torch_gc()
+
 
     res = Processed(
         p,
@@ -1203,8 +1214,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         aesthetic_score = self.aesthetic_score
         negative_aesthetic_score = self.negative_aesthetic_score
 
-        # pipeline_name = sd_pipeline.pipeline_name
-        pipeline_name = 'StableDiffusionXLPipeline'
+        pipeline_name = sd_pipeline.pipeline_name
+        # pipeline_name = 'StableDiffusionXLPipeline'
         # pipeline_name = 'StableDiffusionPipeline'
         # default output: latents
         if pipeline_name == 'StableDiffusionPipeline':
@@ -1219,7 +1230,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
             #     negative_prompt = negative_prompt,
             #     num_images_per_prompt= num_images_per_prompt,
             #     eta = eta,
-            #     generator = generator,
+            #     gnerator = generator,
             #     latents = latents,
             #     prompt_embeds = prompt_embeds,
             #     negative_prompt_embeds= negative_prompt_embeds,
