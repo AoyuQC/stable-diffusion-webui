@@ -514,7 +514,7 @@ def load_model(checkpoint_info=None, already_loaded_state_dict=None):
         lowvram.setup_for_low_vram(sd_model, shared.cmd_opts.medvram)
     else:
         sd_model.to(shared.device)
-
+        
     timer.record("move model to device")
 
     sd_hijack.model_hijack.hijack(sd_model)
@@ -692,7 +692,12 @@ def load_pipeline(checkpoint_info=None):
     timer.record("calculate hash")
 
     shared.opts.data["sd_model_checkpoint"] = checkpoint_info.title
-    sd_pipeline = StableDiffusionPipeline.from_single_file(checkpoint_info.filename, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+    from diffusers.models import AutoencoderKL
+    sd_pipeline = StableDiffusionPipeline.from_single_file(checkpoint_info.filename, torch_dtype=torch.float16, variant="fp16")
+    vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
+    #sd_pipeline.vae = vae
+
+    #sd_pipeline = StableDiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
     sd_pipeline.to((devices.device))
     sd_pipeline.enable_xformers_memory_efficient_attention()
 

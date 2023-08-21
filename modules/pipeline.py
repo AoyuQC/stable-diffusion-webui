@@ -887,12 +887,12 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
             if p.n_iter > 1:
                 shared.state.job = f"Batch {n+1} out of {p.n_iter}"
 
-            with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
-                samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
-                latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
-                image = p.sd_pipeline.vae.decode(latents).sample
-                image = (image / 2 + 0.5).clamp(0, 1)
-                x_samples_ddim = image
+            #with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
+            samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
+            latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
+            image = p.sd_pipeline.vae.decode(latents).sample
+            image = (image / 2 + 0.5).clamp(0, 1)
+            x_samples_ddim = image
 
             # x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
             # x_samples_ddim = torch.stack(x_samples_ddim).float()
@@ -1191,7 +1191,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         aesthetic_score = self.aesthetic_score
         negative_aesthetic_score = self.negative_aesthetic_score
 
-        pipeline_name = self.pipeline_name
+        pipeline_name = sd_pipeline.pipeline_name
         # default output: latents
         if pipeline_name == 'StableDiffusionPipeline':
             images = sd_pipeline(
@@ -1213,6 +1213,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 callback_steps = callback_steps,
                 cross_attention_kwargs = cross_attention_kwargs).images
         elif pipeline_name == 'StableDiffusionXLPipeline':
+            generator = torch.Generator(device=shared.device).manual_seed(12345)
+            #images = sd_pipeline(prompt = 'a flower', num_inference_steps = num_inference_steps, generator=generator).images
             images = sd_pipeline(
                 prompt = prompt,
                 prompt_2 = prompt_2,
@@ -1226,7 +1228,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 num_images_per_prompt = num_images_per_prompt,
                 eta = eta,
                 generator = generator,
-                latents = latents,
+                latents = latents.to(sd_pipeline.unet.dtype),
                 prompt_embeds = prompt_embeds,
                 negative_prompt_embeds = negative_prompt_embeds,
                 pooled_prompt_embeds = pooled_prompt_embeds,
