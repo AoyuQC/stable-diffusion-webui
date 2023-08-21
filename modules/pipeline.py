@@ -1170,8 +1170,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
         # update sampler
-        # sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
-        sd_pipeline = self.sd_pipeline
+        sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
+        # sd_pipeline = self.sd_pipeline
 
         latent_scale_mode = shared.latent_upscale_modes.get(self.hr_upscaler, None) if self.hr_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
         if self.enable_hr and latent_scale_mode is None:
@@ -1215,61 +1215,71 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         negative_aesthetic_score = self.negative_aesthetic_score
 
         pipeline_name = sd_pipeline.pipeline_name
-        # pipeline_name = 'StableDiffusionXLPipeline'
-        # pipeline_name = 'StableDiffusionPipeline'
         # default output: latents
         if pipeline_name == 'StableDiffusionPipeline':
-            images = sd_pipeline(
-                prompt = prompt).images
             # images = sd_pipeline(
-            #     prompt = prompt,
-            #     height = height,
-            #     width = width,
-            #     num_inference_steps = num_inference_steps,
-            #     guidance_scale = guidance_scale,
-            #     negative_prompt = negative_prompt,
-            #     num_images_per_prompt= num_images_per_prompt,
-            #     eta = eta,
-            #     gnerator = generator,
-            #     latents = latents,
-            #     prompt_embeds = prompt_embeds,
-            #     negative_prompt_embeds= negative_prompt_embeds,
-            #     output_type = output_type,
-            #     return_dict = True,
-            #     callback = callback,
-            #     callback_steps = callback_steps,
-            #     cross_attention_kwargs = cross_attention_kwargs).images
-        elif pipeline_name == 'StableDiffusionXLPipeline':
+            #     prompt = prompt).images
             images = sd_pipeline(
-                prompt = prompt).images
-                # output_type = output_type).images
+                prompt = prompt,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt= num_images_per_prompt,
+                eta = eta,
+                gnerator = generator,
+                latents = latents,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds= negative_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs).images
+        elif pipeline_name == 'StableDiffusionXLPipeline':
+            latents = latents.to(torch.float16)
             # images = sd_pipeline(
             #     prompt = prompt,
             #     prompt_2 = prompt_2,
             #     height = height,
             #     width = width,
-            #     num_inference_steps = num_inference_steps,
-            #     denoising_end = denoising_end,
-            #     guidance_scale = guidance_scale,
-            #     negative_prompt = negative_prompt,
-            #     negative_prompt_2 = negative_prompt_2,
-            #     num_images_per_prompt = num_images_per_prompt,
-            #     eta = eta,
-            #     generator = generator,
+            #     # num_inference_steps = num_inference_steps,
+            #     # denoising_end = denoising_end,
+            #     # guidance_scale = guidance_scale,
+            #     # negative_prompt = negative_prompt,
+            #     # negative_prompt_2 = negative_prompt_2,
+            #     # num_images_per_prompt = num_images_per_prompt,
             #     # latents = latents,
-            #     prompt_embeds = prompt_embeds,
-            #     negative_prompt_embeds = negative_prompt_embeds,
-            #     pooled_prompt_embeds = pooled_prompt_embeds,
-            #     negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
-            #     output_type = output_type,
-            #     return_dict = True,
-            #     callback = callback,
-            #     callback_steps = callback_steps,
-            #     cross_attention_kwargs = cross_attention_kwargs,
-            #     guidance_rescale = guidance_rescale,
-            #     original_size = original_size,
-            #     crops_coords_top_left = crops_coords_top_left,
-            #     target_size = target_size).images
+            #     ).images
+            latents = latents.to(torch.float16)
+            images = sd_pipeline(
+                prompt = prompt,
+                prompt_2 = prompt_2,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                denoising_end = denoising_end,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                negative_prompt_2 = negative_prompt_2,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = latents,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                pooled_prompt_embeds = pooled_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                guidance_rescale = guidance_rescale,
+                original_size = original_size,
+                crops_coords_top_left = crops_coords_top_left,
+                target_size = target_size).images
             if use_refiner:
                 images = self.refiner_pipeline(
                     prompt = prompt,
