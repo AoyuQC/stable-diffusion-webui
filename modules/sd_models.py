@@ -19,6 +19,7 @@ from modules.sd_hijack_inpainting import do_inpainting_hijack
 from modules.timer import Timer
 import tomesd
 from diffusers import StableDiffusionPipeline
+from diffusers.models import AutoencoderKL
 
 model_dir = "Stable-diffusion"
 model_path = os.path.abspath(os.path.join(paths.models_path, model_dir))
@@ -449,7 +450,6 @@ class SdModelData:
     def set_sd_model(self, v):
         self.sd_model = v
 
-
 model_data = SdModelData()
 
 
@@ -671,7 +671,6 @@ class DiffuserPipelineData:
 
     def set_sd_pipeline(self, v):
         self.sd_pipeline = v
-
 
 pipeline_data = DiffuserPipelineData()
 

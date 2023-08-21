@@ -321,8 +321,9 @@ def initialize_rest(*, reload_script_modules=False):
         if modules.sd_hijack.current_optimizer is None:
             modules.sd_hijack.apply_optimizations()
         
-        ### load pipeline
-        shared.sd_pipeline
+        # # TODO: disable to debug pipeline
+        # ### load pipeline
+        # shared.sd_pipeline
 
     Thread(target=load_model).start()
 

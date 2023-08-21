@@ -1,6 +1,6 @@
 GitPython==3.1.30
 Pillow==9.5.0
-accelerate==0.18.0
+accelerate==0.20.3
 basicsr==1.4.2
 blendmodes==2022
 clean-fid==0.1.35
@@ -28,4 +28,9 @@ tomesd==0.1.2
 torch
 torchdiffeq==0.2.3
 torchsde==0.2.5
+<<<<<<< HEAD
 transformers==4.30.0
+=======
+diffusers==0.19.3
+transformers==4.31.0
+>>>>>>> 9e73ce44896efbf10ba8de35a20902d0f7b5c689
