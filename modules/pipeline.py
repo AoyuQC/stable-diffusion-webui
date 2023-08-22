@@ -1238,7 +1238,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 callback_steps = callback_steps,
                 cross_attention_kwargs = cross_attention_kwargs).images
         elif pipeline_name == 'StableDiffusionXLPipeline':
-            latents = latents.to(torch.float16)
+            # latents = latents.to(torch.float16)
             # images = sd_pipeline(
             #     prompt = prompt,
             #     prompt_2 = prompt_2,
