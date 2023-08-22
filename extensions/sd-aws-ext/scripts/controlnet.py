@@ -949,7 +949,8 @@ class Script(scripts.Script, metaclass=(
             del model_net
 
         self.latest_network = UnetHook(lowvram=any(unit.low_vram for unit in self.enabled_units))
-        self.latest_network.hook(model=unet, sd_ldm=sd_ldm, control_params=forward_params, process=p)
+        if not hasattr(p, "aws_dus"):
+            self.latest_network.hook(model=unet, sd_ldm=sd_ldm, control_params=forward_params, process=p)
         self.detected_map = detected_maps
         self.post_processors = post_processors
 

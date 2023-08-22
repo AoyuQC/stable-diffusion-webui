@@ -177,6 +177,7 @@ class StableDiffusionProcessing:
         strength: float = 0.3,
         aesthetic_score: float = 6.0,
         negative_aesthetic_score: float = 2.5,
+        aws_dus: bool = True,
     ):
         # self.test_pipeline = StableDiffusionXLPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", force_download=True, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
         # # self.test_pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
@@ -284,6 +285,9 @@ class StableDiffusionProcessing:
         self.denoising_start = denoising_start
         self.aesthetic_score = aesthetic_score
         self.negative_aesthetic_score = negative_aesthetic_score
+
+        # signal for implementation based on diffusers
+        self.aws_dus = aws_dus
 
     @property
     def sd_model(self):
