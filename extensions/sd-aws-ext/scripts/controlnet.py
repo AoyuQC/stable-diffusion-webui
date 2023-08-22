@@ -30,6 +30,7 @@ from pathlib import Path
 from PIL import Image, ImageFilter, ImageOps
 from scripts.lvminthin import lvmin_thin, nake_nms
 from scripts.processor import model_free_preprocessors
+from diffuers import ControlNetModel
 
 gradio_compat = True
 try:
@@ -329,6 +330,13 @@ class Script(scripts.Script, metaclass=(
 
         if not os.path.exists(model_path):
             raise ValueError(f"file not found: {model_path}")
+
+        if hasattr(p, "aws_dus"):
+            logger.info(f"Loading diffusers model: {model}")
+            network = ControlNetModel.from_single_file(model_path)
+            network.to(p.sd_pipeline.device, dtype=p.pipeline.dtype)
+            logger.info(f"Diffusers ControlNet model {model} loaded.")
+            return network
 
         logger.info(f"Loading model: {model}")
         state_dict = load_state_dict(model_path)
@@ -704,6 +712,7 @@ class Script(scripts.Script, metaclass=(
         You can modify the processing object (p) here, inject hooks, etc.
         args contains all values returned by components from ui()
         """
+        
         sd_ldm = p.sd_model
         unet = sd_ldm.model.diffusion_model
 
