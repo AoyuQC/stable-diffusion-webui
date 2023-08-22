@@ -1239,19 +1239,6 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 cross_attention_kwargs = cross_attention_kwargs).images
         elif pipeline_name == 'StableDiffusionXLPipeline':
             latents = latents.to(torch.float16)
-            # images = sd_pipeline(
-            #     prompt = prompt,
-            #     prompt_2 = prompt_2,
-            #     height = height,
-            #     width = width,
-            #     # num_inference_steps = num_inference_steps,
-            #     # denoising_end = denoising_end,
-            #     # guidance_scale = guidance_scale,
-            #     # negative_prompt = negative_prompt,
-            #     # negative_prompt_2 = negative_prompt_2,
-            #     # num_images_per_prompt = num_images_per_prompt,
-            #     # latents = latents,
-            #     ).images
             images = sd_pipeline(
                 prompt = prompt,
                 prompt_2 = prompt_2,
