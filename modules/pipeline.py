@@ -811,6 +811,18 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
 
     return res
 
+def check_controlnet(p: StableDiffusionProcessing):
+    controlnet_state = False
+    valid_script = None
+    for script in p.script.alwayson_scripts:
+        api_info_name = script.api_info.name
+        if api_info_name == 'controlnet':
+            enabled_units_len = len(script.get_enabled_units(p))
+            if enabled_units_len > 0:
+                controlnet_state = True
+                valid_script = script
+            break
+    return controlnet_state, valid_script
 
 def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     """this is the main loop that both txt2img and img2img use; it calls func_init once inside all the scopes and func_sample once per batch"""
@@ -923,7 +935,17 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     #             x_samples_ddim = image
             # with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
             # with torch.autocast("cuda"):
-            samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
+            # check whether controlnet is needed
+            controlnet_state, controlnet_script = check_controlnet(p)
+
+            if controlnet_state == True:
+                # TODO XY: update pipeline
+                # get controled image
+                controlnet_image = controlnet_script.detected_map
+            else:
+                controlnet_image = None
+
+            samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts, controlnet_image=controlnet_image)
             latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
             image = p.sd_pipeline.vae.decode(latents).sample
             image = (image / 2 + 0.5).clamp(0, 1)
@@ -1180,7 +1202,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
     def decode_latents(self):
         return self.sd_pipeline.decode_latents
 
-    def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
+    def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts, controlnet_image=None):
         # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
         # update sampler
@@ -1289,7 +1311,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         elif pipeline_name == 'StableDiffusionControlNetPipeline':
             images = sd_pipeline(
                 prompt = prompt,
-                image = image,
+                image = controlnet_image,
                 height = height,
                 width = width,
                 num_inference_steps = num_inference_steps,
@@ -1315,7 +1337,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
             images = sd_pipeline(
                 prompt = prompt,
                 prompt_2 = prompt_2,
-                image = image,
+                image = controlnet_image,
                 height = height,
                 width = width,
                 num_inference_steps = num_inference_steps,
