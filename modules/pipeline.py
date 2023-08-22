@@ -811,6 +811,16 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
 
     return res
 
+def check_controlnet(p: StableDiffusionProcessing) -> bool:
+    controlnet_state = False
+    for script in p.script.alwayson_scripts:
+        api_info_name = script.api_info.name
+        if api_info_name == 'controlnet':
+            enabled_units_len = len(script.get_enabled_units(p))
+            if enabled_units_len > 0:
+                controlnet_state = True
+            break
+    return controlnet_state
 
 def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     """this is the main loop that both txt2img and img2img use; it calls func_init once inside all the scopes and func_sample once per batch"""
@@ -923,6 +933,9 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     #             x_samples_ddim = image
             # with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
             # with torch.autocast("cuda"):
+            # check whether controlnet is needed
+            controlnet_state = check_controlnet(p)
+
             samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
             latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
             image = p.sd_pipeline.vae.decode(latents).sample
