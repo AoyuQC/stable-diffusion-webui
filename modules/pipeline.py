@@ -177,6 +177,10 @@ class StableDiffusionProcessing:
         strength: float = 0.3,
         aesthetic_score: float = 6.0,
         negative_aesthetic_score: float = 2.5,
+        controlnet_conditioning_scale: Union[float, List[float]] = 1.0,
+        guess_mode: bool = False,
+        control_guidance_start: Union[float, List[float]] = 0.0,
+        control_guidance_end: Union[float, List[float]] = 1.0,
         aws_dus: bool = True,
     ):
         # self.test_pipeline = StableDiffusionXLPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", force_download=True, torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
@@ -285,6 +289,12 @@ class StableDiffusionProcessing:
         self.denoising_start = denoising_start
         self.aesthetic_score = aesthetic_score
         self.negative_aesthetic_score = negative_aesthetic_score
+
+        # parameters for controlnet
+        self.controlnet_conditioning_scale = controlnet_conditioning_scale
+        self.guess_mode = guess_mode
+        self.control_guidance_start = control_guidance_start
+        self.control_guidance_end = control_guidance_end
 
         # signal for implementation based on diffusers
         self.aws_dus = aws_dus
@@ -1218,6 +1228,12 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         aesthetic_score = self.aesthetic_score
         negative_aesthetic_score = self.negative_aesthetic_score
 
+        # parameters for controlnet
+        controlnet_conditioning_scale = self.controlnet_conditioning_scale
+        guess_mode = self.guess_mode
+        control_guidance_start = self.control_guidance_start
+        control_guidance_end = self.control_guidance_end
+
         pipeline_name = sd_pipeline.pipeline_name
         # default output: latents
         if pipeline_name == 'StableDiffusionPipeline':
@@ -1284,36 +1300,91 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 original_size = original_size,
                 crops_coords_top_left = crops_coords_top_left,
                 target_size = target_size).images
-            if use_refiner:
-                images = self.refiner_pipeline(
-                    prompt = prompt,
-                    prompt_2 = prompt_2,
-                    image = images,
-                    strength = strength,
-                    num_inference_steps = num_inference_steps,
-                    denoising_start = denoising_start,
-                    denoising_end = denoising_end,
-                    guidance_scale = guidance_scale,
-                    negative_prompt = negative_prompt,
-                    negative_prompt_2 = negative_prompt_2,
-                    num_images_per_prompt = num_images_per_prompt,
-                    eta = eta,
-                    generator = generator,
-                    prompt_embeds = prompt_embeds,
-                    negative_prompt_embeds = negative_prompt_embeds,
-                    pooled_prompt_embeds = pooled_prompt_embeds,
-                    negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
-                    output_type = output_type,
-                    return_dict = True,
-                    callback = callback,
-                    callback_steps = callback_steps,
-                    cross_attention_kwargs = cross_attention_kwargs,
-                    guidance_rescale = guidance_rescale,
-                    original_size = original_size,
-                    crops_coords_top_left = crops_coords_top_left,
-                    target_size = target_size,
-                    aesthetic_score = aesthetic_score,
-                    negative_aesthetic_score = negative_aesthetic_score).images
+        elif pipeline_name == 'StableDiffusionControlNetPipeline':
+            images = sd_pipeline(
+                prompt = prompt,
+                image = image,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = latents,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                controlnet_conditioning_scale = controlnet_conditioning_scale,
+                guess_mode = guess_mode,
+                control_guidance_start = control_guidance_start,
+                control_guidance_end = control_guidance_end).images
+        elif pipeline_name == 'StableDiffusionXLControlNetPipeline':
+            images = sd_pipeline(
+                prompt = prompt,
+                prompt_2 = prompt_2,
+                image = image,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                negative_prompt_2 = negative_prompt_2,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = latents,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                pooled_prompt_embeds = pooled_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                controlnet_conditioning_scale = controlnet_conditioning_scale,
+                guess_mode = guess_mode,
+                control_guidance_start = control_guidance_start,
+                control_guidance_end = control_guidance_end,
+                original_size = original_size).images
+
+        if use_refiner:
+            images = self.refiner_pipeline(
+                prompt = prompt,
+                prompt_2 = prompt_2,
+                image = images,
+                strength = strength,
+                num_inference_steps = num_inference_steps,
+                denoising_start = denoising_start,
+                denoising_end = denoising_end,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                negative_prompt_2 = negative_prompt_2,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                pooled_prompt_embeds = pooled_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                guidance_rescale = guidance_rescale,
+                original_size = original_size,
+                crops_coords_top_left = crops_coords_top_left,
+                target_size = target_size,
+                aesthetic_score = aesthetic_score,
+                negative_aesthetic_score = negative_aesthetic_score).images
                 
             # images = images.to(torch.float32)
 
