@@ -37,8 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
 opt_C = 4
 opt_f = 8
-from diffusers import DiffusionPipeline, StableDiffusionXLPipeline, StableDiffusionPipeline
-import diffusers as du
+from diffusers import DiffusionPipeline, StableDiffusionXLPipeline, StableDiffusionPipeline, StableDiffusionControlNetPipeline, StableDiffusionXLControlNetPipeline
 # pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", torch_dtype=torch.float32)
 # test_pipeline = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
 # test_pipeline.to("cuda")
@@ -814,7 +813,7 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
 def check_controlnet(p: StableDiffusionProcessing):
     controlnet_state = False
     valid_script = None
-    for script in p.script.alwayson_scripts:
+    for script in p.scripts.alwayson_scripts:
         api_info_name = script.api_info.name
         if api_info_name == 'controlnet':
             enabled_units_len = len(script.get_enabled_units(p))
@@ -941,11 +940,24 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
             if controlnet_state == True:
                 # TODO XY: update pipeline
                 # get controled image
-                controlnet_image = controlnet_script.detected_map
+                pipeline_name = shared.sd_pipeline.pipeline_name
+                controlnet_images = []
+                for detected_map in controlnet_script.detected_map:
+                    controlnet_image = detected_map[0]
+                    controlnet_images.append(controlnet_image)
+                if pipeline_name != 'StableDiffusionXLControlNetPipeline' and pipeline_name != 'StableDiffusionControlNetPipeline':
+                    if pipeline_name == 'StableDiffusionXLPipeline':
+                        shared.sd_pipeline = StableDiffusionXLControlNetPipeline(**p.sd_pipeline.components, controlnet=controlnet_script.control_networks[0])
+                        shared.sd_pipeline.pipeline_name = 'StableDiffusionXLControlNetPipeline'
+                    else:
+                        shared.sd_pipeline = StableDiffusionControlNetPipeline(**p.sd_pipeline.components, controlnet=controlnet_script.control_networks[0])
+                        shared.sd_pipeline.pipeline_name = 'StableDiffusionControlNetPipeline'
+                else:
+                    shared.sd_pipeline.controlnet = controlnet_script.control_networks[0]
             else:
                 controlnet_image = None
 
-            samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts, controlnet_image=controlnet_image)
+            samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts, controlnet_image=controlnet_images)
             latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
             image = p.sd_pipeline.vae.decode(latents).sample
             image = (image / 2 + 0.5).clamp(0, 1)
@@ -1350,8 +1362,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 latents = latents,
                 prompt_embeds = prompt_embeds,
                 negative_prompt_embeds = negative_prompt_embeds,
-                pooled_prompt_embeds = pooled_prompt_embeds,
-                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                #pooled_prompt_embeds = pooled_prompt_embeds,
+                #negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
                 output_type = output_type,
                 return_dict = True,
                 callback = callback,

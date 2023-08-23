@@ -315,15 +315,14 @@ def initialize_rest(*, reload_script_modules=False):
         its optimization may be None because the list of optimizaers has neet been filled
         by that time, so we apply optimization again.
         """
-
         shared.sd_model  # noqa: B018
 
         if modules.sd_hijack.current_optimizer is None:
             modules.sd_hijack.apply_optimizations()
         
         # # TODO: disable to debug pipeline
-        # ### load pipeline
-        # shared.sd_pipeline
+        ### load pipeline
+        shared.sd_pipeline
 
     Thread(target=load_model).start()
 

@@ -30,7 +30,7 @@ from pathlib import Path
 from PIL import Image, ImageFilter, ImageOps
 from scripts.lvminthin import lvmin_thin, nake_nms
 from scripts.processor import model_free_preprocessors
-from diffuers import ControlNetModel
+from diffusers import ControlNetModel
 
 gradio_compat = True
 try:
@@ -227,6 +227,7 @@ class Script(scripts.Script, metaclass=(
         self.enabled_units = []
         self.detected_map = []
         self.post_processors = []
+        self.control_networks = []
         batch_hijack.instance.process_batch_callbacks.append(self.batch_tab_process)
         batch_hijack.instance.process_batch_each_callbacks.append(self.batch_tab_process_each)
         batch_hijack.instance.postprocess_batch_each_callbacks.insert(0, self.batch_tab_postprocess_each)
@@ -334,7 +335,7 @@ class Script(scripts.Script, metaclass=(
         if hasattr(p, "aws_dus"):
             logger.info(f"Loading diffusers model: {model}")
             network = ControlNetModel.from_single_file(model_path)
-            network.to(p.sd_pipeline.device, dtype=p.pipeline.dtype)
+            network.to(p.sd_pipeline.device, dtype=p.sd_pipeline.vae.dtype)
             logger.info(f"Diffusers ControlNet model {model} loaded.")
             return network
 
@@ -729,14 +730,16 @@ class Script(scripts.Script, metaclass=(
            self.latest_network = None
            return
         
-        is_sdxl = getattr(p.sd_model, 'is_sdxl', False)
-        if is_sdxl:
-            logger.warning('ControlNet does not support SDXL -- disabling')
-            return
+        if not hasattr(p, "aws_dus"):
+            is_sdxl = getattr(p.sd_model, 'is_sdxl', False)
+            if is_sdxl:
+                logger.warning('ControlNet does not support SDXL -- disabling')
+                return
 
         detected_maps = []
         forward_params = []
         post_processors = []
+        control_networks = []
 
         # cache stuff
         if self.latest_model_hash != p.sd_model.sd_model_hash:
@@ -760,7 +763,10 @@ class Script(scripts.Script, metaclass=(
                 model_net = None
             else:
                 model_net = Script.load_control_model(p, unet, unit.model, unit.low_vram)
-                model_net.reset()
+                if not hasattr(p, "aws_dus"):
+                    model_net.reset()
+            
+            control_networks.append(model_net)
 
             input_image, image_from_a1111 = Script.choose_input_image(p, unit, idx)
             if image_from_a1111:
@@ -896,35 +902,36 @@ class Script(scripts.Script, metaclass=(
             if 'reference' in unit.module:
                 control_model_type = ControlModelType.AttentionInjection
 
-            global_average_pooling = False
+            if not hasattr(p, "aws_dus"):
+                global_average_pooling = False
 
-            if model_net is not None:
-                if model_net.config.model.params.get("global_average_pooling", False):
-                    global_average_pooling = True
+                if model_net is not None:
+                    if model_net.config.model.params.get("global_average_pooling", False):
+                        global_average_pooling = True
 
-            preprocessor_dict = dict(
-                name=unit.module,
-                preprocessor_resolution=preprocessor_resolution,
-                threshold_a=unit.threshold_a,
-                threshold_b=unit.threshold_b
-            )
+                preprocessor_dict = dict(
+                    name=unit.module,
+                    preprocessor_resolution=preprocessor_resolution,
+                    threshold_a=unit.threshold_a,
+                    threshold_b=unit.threshold_b
+                )
 
-            forward_param = ControlParams(
-                control_model=model_net,
-                preprocessor=preprocessor_dict,
-                hint_cond=control,
-                weight=unit.weight,
-                guidance_stopped=False,
-                start_guidance_percent=unit.guidance_start,
-                stop_guidance_percent=unit.guidance_end,
-                advanced_weighting=None,
-                control_model_type=control_model_type,
-                global_average_pooling=global_average_pooling,
-                hr_hint_cond=hr_control,
-                soft_injection=control_mode != external_code.ControlMode.BALANCED,
-                cfg_injection=control_mode == external_code.ControlMode.CONTROL,
-            )
-            forward_params.append(forward_param)
+                forward_param = ControlParams(
+                    control_model=model_net,
+                    preprocessor=preprocessor_dict,
+                    hint_cond=control,
+                    weight=unit.weight,
+                    guidance_stopped=False,
+                    start_guidance_percent=unit.guidance_start,
+                    stop_guidance_percent=unit.guidance_end,
+                    advanced_weighting=None,
+                    control_model_type=control_model_type,
+                    global_average_pooling=global_average_pooling,
+                    hr_hint_cond=hr_control,
+                    soft_injection=control_mode != external_code.ControlMode.BALANCED,
+                    cfg_injection=control_mode == external_code.ControlMode.CONTROL,
+                )
+                forward_params.append(forward_param)
 
             if 'inpaint_only' in unit.module:
                 final_inpaint_feed = hr_control if hr_control is not None else control
@@ -957,11 +964,12 @@ class Script(scripts.Script, metaclass=(
                 setattr(p, 'controlnet_initial_noise_modifier', forward_param.used_hint_cond_latent)
             del model_net
 
-        self.latest_network = UnetHook(lowvram=any(unit.low_vram for unit in self.enabled_units))
         if not hasattr(p, "aws_dus"):
+            self.latest_network = UnetHook(lowvram=any(unit.low_vram for unit in self.enabled_units))
             self.latest_network.hook(model=unet, sd_ldm=sd_ldm, control_params=forward_params, process=p)
         self.detected_map = detected_maps
         self.post_processors = post_processors
+        self.control_networks = control_networks
 
     def postprocess_batch(self, p, *args, **kwargs):
         images = kwargs.get('images', [])
