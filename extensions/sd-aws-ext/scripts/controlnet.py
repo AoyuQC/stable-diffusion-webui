@@ -307,8 +307,8 @@ class Script(scripts.Script, metaclass=(
 
         model_net = Script.build_control_model(p, unet, model, lowvram)
 
-        if shared.opts.data.get("control_net_model_cache_size", 2) > 0:
-            Script.model_cache[model] = model_net
+        #if shared.opts.data.get("control_net_model_cache_size", 2) > 0:
+        #    Script.model_cache[model] = model_net
 
         return model_net
 

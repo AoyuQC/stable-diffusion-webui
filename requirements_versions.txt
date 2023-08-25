@@ -28,5 +28,5 @@ tomesd==0.1.2
 torch
 torchdiffeq==0.2.3
 torchsde==0.2.5
-diffusers==0.19.3
+diffusers==0.20.0
 transformers==4.31.0
