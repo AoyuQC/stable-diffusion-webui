@@ -747,8 +747,4 @@ def reload_pipeline_weights(sd_pipeline=None, info=None):
         print("Failed to load checkpoint, restoring previous")
         load_pipeline(current_checkpoint_info)
 
-    
-    load_pipeline(checkpoint_info)
-    timer.record("move model to device")
-
     return pipeline_data.sd_pipeline

@@ -38,6 +38,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 opt_C = 4
 opt_f = 8
 from diffusers import StableDiffusionControlNetPipeline, StableDiffusionXLControlNetPipeline, StableDiffusionControlNetImg2ImgPipeline, StableDiffusionControlNetInpaintPipeline
+#StableDiffusionXLControlNetImg2ImgPipeline, StableDiffusionXLControlNetInpaintPipeline
+from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, StableDiffusionImg2ImgPipeline, StableDiffusionInpaintPipeline, StableDiffusionXLImg2ImgPipeline, StableDiffusionXLInpaintPipeline
+from modules.custome_pipeline.stable_diffusion_controlnet_reference import StableDiffusionControlNetReferencePipeline
+from modules.custome_pipeline.stable_diffusion_reference import StableDiffusionReferencePipeline
+from modules.custome_pipeline.stable_diffusion_xl_reference import StableDiffusionXLReferencePipeline
 
 def setup_color_correction(image):
     logging.info("Calibrating color correction.")
@@ -811,6 +816,7 @@ def check_controlnet(p: StableDiffusionProcessing):
     request_type = str(type(p)).split('.')[-1][:-2]
     controlnet_state = False
     valid_script = None
+    
     for script in p.scripts.alwayson_scripts:
         api_info_name = script.api_info.name
         if api_info_name == 'controlnet':
@@ -821,43 +827,88 @@ def check_controlnet(p: StableDiffusionProcessing):
             break
     return request_type, controlnet_state, valid_script
 
-def convert_pipeline(controlnet_state, controlnet_script, request_type):
+def convert_pipeline(controlnet_state, controlnet_script, request_type, p: StableDiffusionProcessing):
     controlnet_images = None
+    ref_image = None
+    pipeline_name = shared.sd_pipeline.pipeline_name
     if controlnet_state == True:
         # TODO XY: update pipeline
         # get controled image
-        pipeline_name = shared.sd_pipeline.pipeline_name
+        
         controlnet_images = []
+        extra_generation_params = p.extra_generation_params
+        idx = 0
+        reference_only = False
         for detected_map in controlnet_script.detected_map:
-            controlnet_image = detected_map[0]
-            controlnet_images.append(Image.fromarray(controlnet_image))
+            if idx != 0:
+                log_key = f"ControlNet {idx}"
+            else:
+                log_key = "ControlNet"
+            preprocessor = extra_generation_params[log_key]
+            if 'reference' in preprocessor:
+                ref_image = Image.fromarray(detected_map[0])
+                reference_only = True
+            else:
+                controlnet_image = detected_map[0]
+                controlnet_images.append(Image.fromarray(controlnet_image))
         
         if request_type == 'StableDiffusionPipelineTxt2Img':
-            if pipeline_name != 'StableDiffusionXLControlNetPipeline' and pipeline_name != 'StableDiffusionControlNetPipeline':
-                if pipeline_name == 'StableDiffusionXLPipeline':
-                    shared.sd_pipeline = StableDiffusionXLControlNetPipeline(**p.sd_pipeline.components, controlnet = controlnet_script.control_networks[0])
+            if 'XL' in pipeline_name:
+                if reference_only and len(controlnet_images) == 0:
+                    shared.sd_pipeline = StableDiffusionXLReferencePipeline(**p.sd_pipeline.components)
+                    shared.sd_pipeline.pipeline_name = 'StableDiffusionXLReferencePipeline'
+                else:
+                    shared.sd_pipeline = StableDiffusionXLControlNetPipeline(**p.sd_pipeline.components, controlnet=controlnet_script.control_networks[0])
                     shared.sd_pipeline.pipeline_name = 'StableDiffusionXLControlNetPipeline'
+            else:
+                if reference_only and len(controlnet_images) > 0:
+                    shared.sd_pipeline = StableDiffusionControlNetReferencePipeline(**p.sd_pipeline.components, controlnet=controlnet_script.control_networks[0])
+                    shared.sd_pipeline.pipeline_name = 'StableDiffusionControlNetReferencePipeline'
+                elif reference_only:
+                    shared.sd_pipeline = StableDiffusionReferencePipeline(**p.sd_pipeline.components)
+                    shared.sd_pipeline.pipeline_name = 'StableDiffusionReferencePipeline'
                 else:
-                    shared.sd_pipeline = StableDiffusionControlNetPipeline(**p.sd_pipeline.components, controlnet = controlnet_script.control_networks[0])
+                    shared.sd_pipeline = StableDiffusionControlNetPipeline(**p.sd_pipeline.components, controlnet=controlnet_script.control_networks[0])
                     shared.sd_pipeline.pipeline_name = 'StableDiffusionControlNetPipeline'
+        
+        elif request_type == 'StableDiffusionPipelineImg2Img':  
+            if 'XL' in pipeline_name:
+                aa = None
+                #shared.sd_pipeline = StableDiffusionXLControlNetImg2ImgPipeline(**p.sd_pipeline.components, controlnet=controlnet_script.control_networks[0])
+                #shared.sd_pipeline.pipeline_name = 'StableDiffusionXLControlNetImg2ImgPipeline'
             else:
-                shared.sd_pipeline.controlnet = controlnet_script.control_networks[0]
-        elif request_type == 'StableDiffusionPipelineImg2Img':
-            if pipeline_name != 'StableDiffusionControlNetImg2ImgPipeline' and pipeline_name != 'StableDiffusionControlNetInpaintPipeline' and pipeline_name != 'StableDiffusionXLControlNetImg2ImgPipeline':
-                if pipeline_name == 'StableDiffusionXLPipeline':
-                    shared.sd_pipeline = StableDiffusionXLControlNetPipeline(**p.sd_pipeline.components, controlnet = controlnet_script.control_networks[0])
-                    shared.sd_pipeline.pipeline_name = 'StableDiffusionXLControlNetImg2ImgPipeline'
+                if p.image_mask is None:
+                    shared.sd_pipeline = StableDiffusionControlNetImg2ImgPipeline(**p.sd_pipeline.components, controlnet = controlnet_script.control_networks[0])
+                    shared.sd_pipeline.pipeline_name = 'StableDiffusionControlNetImg2ImgPipeline'
                 else:
-                    if p.image_mask is None:
-                        shared.sd_pipeline = StableDiffusionControlNetImg2ImgPipeline(**p.sd_pipeline.components, controlnet = controlnet_script.control_networks[0])
-                        shared.sd_pipeline.pipeline_name = 'StableDiffusionControlNetImg2ImgPipeline'
-                    else:
-                        shared.sd_pipeline = StableDiffusionControlNetInpaintPipeline(**p.sd_pipeline.components, controlnet = controlnet_script.control_networks[0])
-                        shared.sd_pipeline.pipeline_name = 'StableDiffusionControlNetInpaintPipeline'
+                    shared.sd_pipeline = StableDiffusionControlNetInpaintPipeline(**p.sd_pipeline.components, controlnet = controlnet_script.control_networks[0])
+                    shared.sd_pipeline.pipeline_name = 'StableDiffusionControlNetInpaintPipeline'
+    else:
+        if request_type == 'StableDiffusionPipelineTxt2Img':
+            if 'XL' in pipeline_name:
+                shared.sd_pipeline = StableDiffusionXLPipeline(**p.sd_pipeline.components)
+                shared.sd_pipeline.pipeline_name = 'StableDiffusionXLPipeline'
             else:
-                shared.sd_pipeline.controlnet = controlnet_script.control_networks[0]
-    
-    return controlnet_images
+                shared.sd_pipeline = StableDiffusionPipeline(**p.sd_pipeline.components)
+                shared.sd_pipeline.pipeline_name = 'StableDiffusionPipeline'
+        elif request_type == 'StableDiffusionPipelineImg2Img':  
+            if 'XL' in pipeline_name:
+                if p.image_mask is None:
+                    shared.sd_pipeline = StableDiffusionXLImg2ImgPipeline(**p.sd_pipeline.components)
+                    shared.sd_pipeline.pipeline_name = 'StableDiffusionXLImg2ImgPipeline'
+                else:
+                    shared.sd_pipeline = StableDiffusionXLInpaintPipeline(**p.sd_pipeline.components)
+                    shared.sd_pipeline.pipeline_name = 'StableDiffusionXLInpaintPipeline'
+            else:
+                if p.image_mask is None:
+                    shared.sd_pipeline = StableDiffusionImg2ImgPipeline(**p.sd_pipeline.components)
+                    shared.sd_pipeline.pipeline_name = 'StableDiffusionImg2ImgPipeline'
+                else:
+                    shared.sd_pipeline = StableDiffusionInpaintPipeline(**p.sd_pipeline.components)
+                    shared.sd_pipeline.pipeline_name = 'StableDiffusionInpaintPipeline'
+
+
+    return controlnet_images, ref_image
 
 def process_images_inner(p: StableDiffusionProcessing) -> Processed:
     """this is the main loop that both txt2img and img2img use; it calls func_init once inside all the scopes and func_sample once per batch"""
@@ -965,9 +1016,9 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
 
             # check whether controlnet is needed and then convert pipeline for contronet
             request_type, controlnet_state, controlnet_script = check_controlnet(p)
-            controlnet_images = convert_pipeline(controlnet_state, controlnet_script, request_type)
+            controlnet_images, ref_img = convert_pipeline(controlnet_state, controlnet_script, request_type, p)
 
-            samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts, controlnet_image=controlnet_images)
+            samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts, controlnet_image=controlnet_images, ref_img=ref_img)
             latents = 1 / p.sd_pipeline.vae.config.scaling_factor * samples_ddim
             image = p.sd_pipeline.vae.decode(latents).sample
             image = (image / 2 + 0.5).clamp(0, 1)
@@ -1220,7 +1271,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
     def decode_latents(self):
         return self.sd_pipeline.decode_latents
 
-    def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts, controlnet_image=None):
+    def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts, controlnet_image=None, ref_img=None):
         # self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
 
         # update sampler
@@ -1287,7 +1338,7 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 negative_prompt = negative_prompt,
                 num_images_per_prompt= num_images_per_prompt,
                 eta = eta,
-                gnerator = generator,
+                generator = generator,
                 latents = latents,
                 prompt_embeds = prompt_embeds,
                 negative_prompt_embeds= negative_prompt_embeds,
@@ -1378,6 +1429,94 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
                 control_guidance_start = control_guidance_start,
                 control_guidance_end = control_guidance_end,
                 original_size = original_size).images
+        elif pipeline_name == 'StableDiffusionControlNetReferencePipeline':
+            images = sd_pipeline(
+                prompt = prompt,
+                image = controlnet_image,
+                ref_image = ref_img,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = latents,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                controlnet_conditioning_scale = controlnet_conditioning_scale,
+                guess_mode = guess_mode,
+                attention_auto_machine_weight = 1.0,
+                gn_auto_machine_weight = 1.0,
+                style_fidelity = 0.5,
+                reference_attn = True,
+                reference_adain = True).images
+        elif pipeline_name == 'StableDiffusionReferencePipeline':
+            images = sd_pipeline(
+                prompt = prompt,
+                ref_image = ref_img,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = latents,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                guidance_rescale = 0.0,
+                attention_auto_machine_weight = 1.0,
+                gn_auto_machine_weight = 1.0,
+                style_fidelity = 0.5,
+                reference_attn = True,
+                reference_adain = True).images
+        elif pipeline_name == 'StableDiffusionXLReferencePipeline':
+            images = sd_pipeline(
+                prompt = prompt,
+                prompt_2 = prompt_2,
+                ref_image = ref_img,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                denoising_end = denoising_end,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                negative_prompt_2 = negative_prompt_2,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = latents,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                pooled_prompt_embeds = pooled_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                guidance_rescale = guidance_rescale,
+                original_size = original_size,
+                crops_coords_top_left = crops_coords_top_left,
+                target_size = target_size,
+                attention_auto_machine_weight = 1.0,
+                gn_auto_machine_weight = 1.0,
+                style_fidelity = 0.5,
+                reference_attn = True,
+                reference_adain = False).images
 
         if use_refiner:
             images = self.refiner_pipeline(
@@ -1870,7 +2009,7 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
 
         return timesteps, num_inference_steps - t_start
 
-    def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts, controlnet_image=None):
+    def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts, controlnet_image=None, ref_img=None):
         
         # update sampler
         sd_pipeline = sd_samplers.update_sampler(self.sampler_name, self.sd_pipeline, self.pipeline_name)
@@ -1925,169 +2064,202 @@ class StableDiffusionPipelineImg2Img(StableDiffusionProcessing):
         pipeline_name = self.pipeline_name
         generator = generator.manual_seed(seed=seeds)
         # default output: latents
-        if pipeline_name == 'StableDiffusionPipeline':
-            if self.image_mask is None:
-                images = sd_pipeline(
-                    prompt = prompt,
-                    image = self.init_latent,
-                    strength = self.denoising_strength,
-                    num_inference_steps = num_inference_steps,
-                    guidance_scale = guidance_scale,
-                    negative_prompt = negative_prompt,
-                    num_images_per_prompt= num_images_per_prompt,
-                    eta = eta,
-                    generator = generator,
-                    prompt_embeds = prompt_embeds,
-                    negative_prompt_embeds= negative_prompt_embeds,
-                    output_type = output_type,
-                    return_dict = True,
-                    callback = callback,
-                    callback_steps = callback_steps,
-                    cross_attention_kwargs = cross_attention_kwargs).images[0]
-            else:
-                images = sd_pipeline(
-                    prompt = prompt,
-                    image = self.init_images,
-                    mask_image = self.image_mask,
-                    height = height,
-                    width = width,
-                    strength = self.denoising_strength,
-                    num_inference_steps = num_inference_steps,
-                    guidance_scale = guidance_scale,
-                    negative_prompt = negative_prompt,
-                    num_images_per_prompt= num_images_per_prompt,
-                    eta = eta,
-                    generator = generator,
-                    latents = None,
-                    prompt_embeds = prompt_embeds,
-                    negative_prompt_embeds= negative_prompt_embeds,
-                    output_type = output_type,
-                    return_dict = True,
-                    callback = callback,
-                    callback_steps = callback_steps,
-                    cross_attention_kwargs = cross_attention_kwargs).images[0]
-        elif pipeline_name == 'StableDiffusionXLPipeline':
+        if pipeline_name == 'StableDiffusionImg2ImgPipeline':
+           images = sd_pipeline(
+                prompt = prompt,
+                image = self.init_latent,
+                strength = self.denoising_strength,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt= num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds= negative_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs).images[0]
+        elif pipeline_name == 'StableDiffusionInpaintPipeline':
+             images = sd_pipeline(
+                prompt = prompt,
+                image = self.init_images,
+                mask_image = self.image_mask,
+                height = height,
+                width = width,
+                strength = self.denoising_strength,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt= num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = None,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds= negative_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs).images[0]
+        elif pipeline_name == 'StableDiffusionXLImg2ImgPipeline':
             ### image = self.init_latent + noise -> need set denoising_start is not none
-            if self.image_mask is None:
-                images = sd_pipeline(
-                    prompt = prompt,
-                    prompt_2 = prompt_2,
-                    image = self.init_latent,
-                    strength = self.denoising_strength,
-                    num_inference_steps = num_inference_steps,
-                    denoising_start = denoising_start,
-                    denoising_end = denoising_end,
-                    guidance_scale = guidance_scale,
-                    negative_prompt = negative_prompt,
-                    negative_prompt_2 = negative_prompt_2,
-                    num_images_per_prompt = num_images_per_prompt,
-                    eta = eta,
-                    generator = generator,
-                    latents = None,
-                    prompt_embeds = prompt_embeds,
-                    negative_prompt_embeds = negative_prompt_embeds,
-                    pooled_prompt_embeds = pooled_prompt_embeds,
-                    negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
-                    output_type = output_type,
-                    return_dict = True,
-                    callback = callback,
-                    callback_steps = callback_steps,
-                    cross_attention_kwargs = cross_attention_kwargs,
-                    guidance_rescale = guidance_rescale,
-                    original_size = original_size,
-                    crops_coords_top_left = crops_coords_top_left,
-                    target_size = target_size,
-                    aesthetic_score = aesthetic_score,
-                    negative_aesthetic_score = negative_aesthetic_score).images[0],
-            else:
-                images = sd_pipeline(
-                    prompt = prompt,
-                    prompt_2 = prompt_2,
-                    image = self.init_latent,
-                    mask_image = self.image_mask,
-                    height = height,
-                    width = width,
-                    strength = self.denoising_strength,
-                    num_inference_steps = num_inference_steps,
-                    denoising_start = denoising_start,
-                    denoising_end = denoising_end,
-                    guidance_scale = guidance_scale,
-                    negative_prompt = negative_prompt,
-                    negative_prompt_2 = negative_prompt_2,
-                    num_images_per_prompt = num_images_per_prompt,
-                    eta = eta,
-                    generator = generator,
-                    latents = None,
-                    prompt_embeds = prompt_embeds,
-                    negative_prompt_embeds = negative_prompt_embeds,
-                    pooled_prompt_embeds = pooled_prompt_embeds,
-                    negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
-                    output_type = output_type,
-                    return_dict = True,
-                    callback = callback,
-                    callback_steps = callback_steps,
-                    cross_attention_kwargs = cross_attention_kwargs,
-                    guidance_rescale = guidance_rescale,
-                    original_size = original_size,
-                    crops_coords_top_left = crops_coords_top_left,
-                    target_size = target_size,
-                    aesthetic_score = aesthetic_score,
-                    negative_aesthetic_score = negative_aesthetic_score).images[0],
+            images = sd_pipeline(
+                prompt = prompt,
+                prompt_2 = prompt_2,
+                image = self.init_latent,
+                strength = self.denoising_strength,
+                num_inference_steps = num_inference_steps,
+                denoising_start = denoising_start,
+                denoising_end = denoising_end,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                negative_prompt_2 = negative_prompt_2,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = None,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                pooled_prompt_embeds = pooled_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                guidance_rescale = guidance_rescale,
+                original_size = original_size,
+                crops_coords_top_left = crops_coords_top_left,
+                target_size = target_size,
+                aesthetic_score = aesthetic_score,
+                negative_aesthetic_score = negative_aesthetic_score).images[0]
+        elif pipeline_name == 'StableDiffusionXLInpaintPipeline':
+             images = sd_pipeline(
+                prompt = prompt,
+                prompt_2 = prompt_2,
+                image = self.init_latent,
+                mask_image = self.image_mask,
+                height = height,
+                width = width,
+                strength = self.denoising_strength,
+                num_inference_steps = num_inference_steps,
+                denoising_start = denoising_start,
+                denoising_end = denoising_end,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                negative_prompt_2 = negative_prompt_2,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = None,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                pooled_prompt_embeds = pooled_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                guidance_rescale = guidance_rescale,
+                original_size = original_size,
+                crops_coords_top_left = crops_coords_top_left,
+                target_size = target_size,
+                aesthetic_score = aesthetic_score,
+                negative_aesthetic_score = negative_aesthetic_score).images[0],
         elif pipeline_name == 'StableDiffusionControlNetImg2ImgPipeline':
             images = sd_pipeline(
-                    prompt = prompt,
-                    image = self.init_latent,
-                    control_image = controlnet_image,
-                    height = height,
-                    width = width,
-                    strength = self.denoising_strength,
-                    num_inference_steps = num_inference_steps,
-                    guidance_scale = guidance_scale,
-                    negative_prompt = negative_prompt,
-                    num_images_per_prompt= num_images_per_prompt,
-                    eta = eta,
-                    generator = generator,
-                    latents = None,
-                    prompt_embeds = prompt_embeds,
-                    negative_prompt_embeds= negative_prompt_embeds,
-                    output_type = output_type,
-                    return_dict = True,
-                    callback = callback,
-                    callback_steps = callback_steps,
-                    cross_attention_kwargs = cross_attention_kwargs,
-                    controlnet_conditioning_scale = controlnet_conditioning_scale,
-                    guess_mode = guess_mode,
-                    control_guidance_start = control_guidance_start,
-                    control_guidance_end = control_guidance_end).images[0]
+                prompt = prompt,
+                image = self.init_latent,
+                control_image = controlnet_image,
+                height = height,
+                width = width,
+                strength = self.denoising_strength,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt= num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = None,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds= negative_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                controlnet_conditioning_scale = controlnet_conditioning_scale,
+                guess_mode = guess_mode,
+                control_guidance_start = control_guidance_start,
+                control_guidance_end = control_guidance_end).images[0]
         elif pipeline_name == 'StableDiffusionControlNetInpaintPipeline':
             images = sd_pipeline(
-                    prompt = prompt,
-                    image = self.init_latent,
-                    mask_image = self.image_mask,
-                    control_image = controlnet_image,
-                    height = height,
-                    width = width,
-                    strength = self.denoising_strength,
-                    num_inference_steps = num_inference_steps,
-                    guidance_scale = guidance_scale,
-                    negative_prompt = negative_prompt,
-                    num_images_per_prompt= num_images_per_prompt,
-                    eta = eta,
-                    generator = generator,
-                    latents = None,
-                    prompt_embeds = prompt_embeds,
-                    negative_prompt_embeds= negative_prompt_embeds,
-                    output_type = output_type,
-                    return_dict = True,
-                    callback = callback,
-                    callback_steps = callback_steps,
-                    cross_attention_kwargs = cross_attention_kwargs,
-                    controlnet_conditioning_scale = controlnet_conditioning_scale,
-                    guess_mode = guess_mode,
-                    control_guidance_start = control_guidance_start,
-                    control_guidance_end = control_guidance_end).images[0]
+                prompt = prompt,
+                image = self.init_latent,
+                mask_image = self.image_mask,
+                control_image = controlnet_image,
+                height = height,
+                width = width,
+                strength = self.denoising_strength,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt= num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = None,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds= negative_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                controlnet_conditioning_scale = controlnet_conditioning_scale,
+                guess_mode = guess_mode,
+                control_guidance_start = control_guidance_start,
+                control_guidance_end = control_guidance_end).images[0]
         elif pipeline_name == 'StableDiffusionXLControlNetImg2ImgPipeline':
-            aa = None
+            images = sd_pipeline(
+                prompt = prompt,
+                prompt_2 = prompt_2,
+                image = self.init_latent,
+                control_image = controlnet_image,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                negative_prompt_2 = negative_prompt_2,
+                num_images_per_prompt = num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = None,
+                prompt_embeds = prompt_embeds,
+                negative_prompt_embeds = negative_prompt_embeds,
+                pooled_prompt_embeds = pooled_prompt_embeds,
+                negative_pooled_prompt_embeds = negative_pooled_prompt_embeds,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs,
+                controlnet_conditioning_scale = controlnet_conditioning_scale,
+                guess_mode = guess_mode,
+                control_guidance_start = control_guidance_start,
+                control_guidance_end = control_guidance_end,
+                original_size = original_size,
+                crops_coords_top_left = (0, 0),
+                target_size = None,
+                negative_original_size = None,
+                negative_crops_coords_top_left = (0, 0),
+                negative_target_size = None,
+                aesthetic_score = 6.0,
+                negative_aesthetic_score = 2.5).images[0]
         elif pipeline_name == 'StableDiffusionXLControlNetInpaintPipeline':
             aa = None
 
