@@ -23,15 +23,18 @@ aigc_payload = json.load(f)
 
 payload={}
 payload['task'] = 'txt2img'
-payload['txt2img_payload'] = {"denoising_strength": 0.75, "prompt": "a girl", "styles": [], "seed": 12345, "subseed": 23456, "subseed_strength": 0.0, "seed_resize_from_h": 0, "seed_resize_from_w": 0, "sampler_name": "Euler a", "batch_size": 1, "n_iter": 1, "steps": 20, "cfg_scale": 7.0, "width": 512, "height": 512, "negative_prompt": "", "eta": 1, "s_churn": 0, "s_tmax": 1, "s_tmin": 0, "s_noise": 1, "override_settings": {}, "script_name": "", "script_args": []}
-# payload['txt2img_payload']['alwayson_scripts'] = aigc_params['alwayson_scripts']
-# payload["txt2img_payload"]["prompt"] = aigc_params["prompt"]
-# payload["txt2img_payload"]["seed"] = aigc_params["seed"]
-# payload["txt2img_payload"]["steps"] = 20 #aigc_params["steps"]
-# payload["txt2img_payload"]["width"] = aigc_params["width"]
-# payload["txt2img_payload"]["height"] = aigc_params["height"]
-# payload["txt2img_payload"]["cfg_scale"] = aigc_params["cfg_scale"]
-# payload["txt2img_payload"]["negative_prompt"] = aigc_params["negative_prompt"]
+payload['txt2img_payload'] = {"denoising_strength": 0.75, "prompt": "a girl", "styles": [], "seed": 2, "subseed": 2, "subseed_strength": 0.0, "seed_resize_from_h": 0, "seed_resize_from_w": 0, "sampler_name": "Euler a", "batch_size": 2, "n_iter": 1, "steps": 20, "cfg_scale": 0.5, "width": 512, "height": 512, "negative_prompt": "", "eta": 1, "s_churn": 0, "s_tmax": 1, "s_tmin": 0, "s_noise": 1, "override_settings": {}, "script_name": "", "script_args": []}
+payload['txt2img_payload']['alwayson_scripts'] = aigc_params['alwayson_scripts']
+payload["txt2img_payload"]["prompt"] = aigc_params["prompt"]
+payload["txt2img_payload"]["seed"] = aigc_params["seed"]
+payload["txt2img_payload"]["subseed"] = aigc_params["subseed"]
+payload["txt2img_payload"]["steps"] = 20 #aigc_params["steps"]
+payload["txt2img_payload"]["width"] = aigc_params["width"]
+payload["txt2img_payload"]["height"] = aigc_params["height"]
+payload["txt2img_payload"]["cfg_scale"] = aigc_params["cfg_scale"]
+payload["txt2img_payload"]["negative_prompt"] = aigc_params["negative_prompt"]
+payload['txt2img_payload']['batch_size'] = 1
+
 
 
 #payload['task'] = 'img2img'

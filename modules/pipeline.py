@@ -1285,8 +1285,8 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
 
         # common parameters for sd
         prompt = self.prompt 
-        height = self.width
-        width = self.height
+        height = self.height
+        width = self.width
         num_inference_steps = self.steps
         guidance_scale = self.cfg_scale
         negative_prompt = self.negative_prompt or ""
