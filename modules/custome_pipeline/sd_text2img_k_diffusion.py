@@ -41,7 +41,7 @@ class ModelWrapper:
         return self.model(*args, encoder_hidden_states=encoder_hidden_states, **kwargs).sample
 
 
-class StableDiffusionPipeline(DiffusionPipeline):
+class StableDiffusionPipeline_webui(DiffusionPipeline):
     r"""
     Pipeline for text-to-image generation using Stable Diffusion.
 
@@ -450,7 +450,7 @@ class StableDiffusionPipeline(DiffusionPipeline):
 
         def model_fn(x, t):
             latent_model_input = torch.cat([x] * 2)
-
+            t = torch.cat([t] * 2)
             noise_pred = self.k_diffusion_model(latent_model_input, t, cond=text_embeddings)
 
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -459,11 +459,18 @@ class StableDiffusionPipeline(DiffusionPipeline):
 
         latents = self.sampler(model_fn, latents, sigmas)
 
-        # 8. Post-processing
-        image = self.decode_latents(latents)
+        if not output_type == "latent":
+            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
+            image, has_nsfw_concept = self.run_safety_checker(image, device, text_embeddings.dtype)
+        else:
+            image = latents
+            has_nsfw_concept = None
 
-        # 9. Run safety checker
-        image, has_nsfw_concept = self.run_safety_checker(image, device, text_embeddings.dtype)
+        # # 8. Post-processing
+        # image = self.decode_latents(latents)
+
+        # # 9. Run safety checker
+        # image, has_nsfw_concept = self.run_safety_checker(image, device, text_embeddings.dtype)
 
         # 10. Convert to PIL
         if output_type == "pil":

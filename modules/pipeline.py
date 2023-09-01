@@ -43,6 +43,7 @@ from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, Stable
 from modules.custome_pipeline.stable_diffusion_controlnet_reference import StableDiffusionControlNetReferencePipeline
 from modules.custome_pipeline.stable_diffusion_reference import StableDiffusionReferencePipeline
 from modules.custome_pipeline.stable_diffusion_xl_reference import StableDiffusionXLReferencePipeline
+from modules.custome_pipeline.sd_text2img_k_diffusion import StableDiffusionPipeline_webui
 
 def setup_color_correction(image):
     logging.info("Calibrating color correction.")
@@ -1328,7 +1329,25 @@ class StableDiffusionPipelineTxt2Img(StableDiffusionProcessing):
         pipeline_name = sd_pipeline.pipeline_name
         latents = latents.to(torch.float16)
         # default output: latents
-        if pipeline_name == 'StableDiffusionPipeline':
+        if pipeline_name == 'StableDiffusionPipeline_webui':
+            sd_pipeline.set_scheduler("sample_euler_ancestral")
+            images = sd_pipeline(
+                prompt = prompt,
+                height = height,
+                width = width,
+                num_inference_steps = num_inference_steps,
+                guidance_scale = guidance_scale,
+                negative_prompt = negative_prompt,
+                num_images_per_prompt= num_images_per_prompt,
+                eta = eta,
+                generator = generator,
+                latents = latents,
+                output_type = output_type,
+                return_dict = True,
+                callback = callback,
+                callback_steps = callback_steps,
+                cross_attention_kwargs = cross_attention_kwargs).images
+        elif pipeline_name == 'StableDiffusionPipeline':
             images = sd_pipeline(
                 prompt = prompt,
                 height = height,
